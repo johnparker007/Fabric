@@ -22,3 +22,27 @@ Repeat with `out/build/release` and `-DCMAKE_BUILD_TYPE=Release` for an optimize
 headers are under [`include/fabric/`](include/fabric/). See
 [`docs/fabric-architecture.md`](docs/fabric-architecture.md) for runtime boundaries and
 [`docs/fabric-amber-backend.md`](docs/fabric-amber-backend.md) for the production adapter contract.
+
+### Reconfiguring after moving the repository
+
+CMake caches contain absolute source and build paths and cannot be reused after the repository is
+moved. Delete the generated build and install trees, then configure again from the new repository
+path; no source change is required.
+
+In PowerShell:
+
+```powershell
+Remove-Item -Recurse -Force .\out\build
+Remove-Item -Recurse -Force .\out\install -ErrorAction SilentlyContinue
+```
+
+Or in Command Prompt:
+
+```bat
+rmdir /s /q out\build
+rmdir /s /q out\install
+```
+
+With Visual Studio 2022, use **Project > Delete Cache and Reconfigure**. If stale state remains,
+close Visual Studio, delete `.vs` and `out\build` (and `out\install`, if present), reopen the
+repository, and configure it again.

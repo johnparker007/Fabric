@@ -3,6 +3,39 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+# CMake and build output
+/out/
+/build/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+/Makefile
+
+# Ninja
+build.ninja
+*.ninja
+.ninja_deps
+.ninja_log
+
+# Visual Studio CMake and local state
+/.vs/
+CMakeSettings.json.user
+CMakeUserPresets.json
+
+# Generated native binaries and intermediates
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
 # User-specific files
 *.rsuser
 *.suo
