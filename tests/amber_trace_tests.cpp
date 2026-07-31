@@ -78,11 +78,11 @@ int main(int argc, char **argv) {
     environment("FABRIC_AMBER_TRACE_FILE", "relative/not-allowed.log");
   }
   FabricRuntime *runtime = nullptr;
-  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) == FABRIC_OK);
+  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
   if (mode == "explicit") {
     FabricLaunchRequest request{};
     request.struct_size = sizeof(request);
-    request.struct_version = FABRIC_ABI_VERSION_1;
+    request.struct_version = FABRIC_ABI_VERSION_CURRENT;
     std::strcpy(request.backend_kind, "amber");
     std::strcpy(request.machine_identifier, "jpm-system6");
     std::strncpy(request.backend_path, FAKE_PRODUCTION_AMBER_PATH,

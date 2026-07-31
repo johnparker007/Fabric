@@ -17,7 +17,7 @@
 static FabricLaunchRequest request(const char *path) {
   FabricLaunchRequest r{};
   r.struct_size = sizeof(r);
-  r.struct_version = FABRIC_ABI_VERSION_1;
+  r.struct_version = FABRIC_ABI_VERSION_CURRENT;
   std::strcpy(r.backend_kind, "amber");
   std::strcpy(r.machine_identifier, "jpm-system6");
   std::strncpy(r.backend_path, path, sizeof(r.backend_path) - 1);
@@ -41,7 +41,7 @@ static void FABRIC_CALL diagnostic(const char *message, void *context) {
 
 int main() {
   FabricRuntime *runtime = nullptr;
-  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) == FABRIC_OK);
+  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
   auto bad = request(FAKE_PRODUCTION_AMBER_MISSING_REQUIRED_PATH);
   FabricMachineSession *session = nullptr;
   CHECK(FabricCreateSession(runtime, &bad, &session) == FABRIC_NOT_SUPPORTED);
@@ -51,7 +51,7 @@ int main() {
   FabricRomResource roms[3]{};
   for (auto &r : roms) {
     r.struct_size = sizeof(r);
-    r.struct_version = FABRIC_ABI_VERSION_1;
+    r.struct_version = FABRIC_ABI_VERSION_CURRENT;
   }
   roms[0].role = FABRIC_ROM_ROLE_PROGRAM;
   roms[0].slot = 1;
@@ -93,13 +93,13 @@ int main() {
   CHECK(FabricSessionReset(session) == FABRIC_OK);
   FabricAudioFormat format{};
   format.struct_size = sizeof(format);
-  format.struct_version = FABRIC_ABI_VERSION_1;
+  format.struct_version = FABRIC_ABI_VERSION_CURRENT;
   CHECK(FabricSessionGetAudioFormat(session, &format) == FABRIC_OK);
   CHECK(format.sample_rate == 44100 && format.channel_count == 2);
   CHECK(FabricSessionAdvance(session, 500000) == FABRIC_OK);
   FabricInput input{};
   input.struct_size = sizeof(input);
-  input.struct_version = FABRIC_ABI_VERSION_1;
+  input.struct_version = FABRIC_ABI_VERSION_CURRENT;
   input.numerical_index = 7;
   input.active = 1;
   CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
@@ -109,7 +109,7 @@ int main() {
   FabricSegmentDisplay segments[16]{};
   FabricMachineSnapshot snap{};
   snap.struct_size = sizeof(snap);
-  snap.struct_version = FABRIC_ABI_VERSION_1;
+  snap.struct_version = FABRIC_ABI_VERSION_CURRENT;
   snap.lamps = lamps;
   snap.lamp_capacity = 512;
   snap.reels = reels;
@@ -122,9 +122,54 @@ int main() {
   CHECK(lamps[0].logical_state == 1 && lamps[1].logical_state == 1 &&
         lamps[1].brightness == 4.0f);
   CHECK(reels[0].position == 9); /* A partial tick performs no native Run. */
-  CHECK(chars[0].characters[0] == 0x1234 && chars[0].attributes[0] == 1);
+  CHECK(chars[0].characters[0] == 0x1234 && chars[0].attributes[0] == 1 &&
+        chars[0].brightness == 0.5f);
   CHECK(segments[0].segment_masks[0] == 0x5a);
   CHECK(lamps[3].brightness == 3.0f && lamps[4].brightness >= 1.0f);
+
+  /* Exercise alpha brightness through the complete fake Amber -> adapter ->
+   * public snapshot path, while checking the other display transports stay
+   * unchanged. */
+  input.numerical_index = 240;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(chars[0].brightness == 0.0f && chars[0].characters[0] == 0x1234 &&
+        chars[0].attributes[0] == 1);
+  CHECK(segments[0].segment_masks[0] == 0x5a &&
+        lamps[0].brightness == 0.75f);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.numerical_index = 241;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(chars[0].brightness == 1.0f && chars[0].characters[0] == 0x1234 &&
+        chars[0].attributes[0] == 1);
+  CHECK(segments[0].segment_masks[0] == 0x5a &&
+        lamps[0].brightness == 0.75f);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.numerical_index = 249;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_BACKEND_ERROR);
+  CHECK(session_error(session).find(
+            "alpha-display brightness is non-finite; index=0") !=
+        std::string::npos);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.numerical_index = 248;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_BACKEND_ERROR);
+  CHECK(session_error(session).find(
+            "alpha-display brightness is outside 0.0..1.0; index=0") !=
+        std::string::npos);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.numerical_index = 7;
+  input.active = 1;
   CHECK(FabricSessionAdvance(session, 500000) == FABRIC_OK);
   CHECK(FabricSessionAdvance(session, 2000000) == FABRIC_OK);
   CHECK(FabricSessionAdvance(session, 5000000) == FABRIC_OK);

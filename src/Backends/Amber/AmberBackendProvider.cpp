@@ -40,8 +40,8 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
     }
     const auto &resource = request.rom_resources[i];
     if (resource.struct_size < sizeof(resource) ||
-        resource.struct_version != FABRIC_ABI_VERSION_1 || !resource.path ||
-        !resource.path[0]) {
+        resource.struct_version != FABRIC_ABI_VERSION_CURRENT ||
+        !resource.path || !resource.path[0]) {
       error = "malformed typed ROM resource";
       return FABRIC_INVALID_ARGUMENT;
     }

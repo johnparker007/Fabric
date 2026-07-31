@@ -17,11 +17,11 @@
 static bool exercise(const char *path, uint32_t expected_rate,
                      uint16_t expected_channels) {
   FabricRuntime *runtime = nullptr;
-  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) == FABRIC_OK);
+  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
   const char *roms[] = {"even.rom", "odd.rom"};
   FabricLaunchRequest request{};
   request.struct_size = sizeof(request);
-  request.struct_version = FABRIC_ABI_VERSION_1;
+  request.struct_version = FABRIC_ABI_VERSION_CURRENT;
   std::strcpy(request.backend_kind, "amber");
   std::strcpy(request.machine_identifier, "jpm-system6");
   std::strncpy(request.backend_path, path, sizeof(request.backend_path) - 1);
@@ -33,7 +33,7 @@ static bool exercise(const char *path, uint32_t expected_rate,
 
   FabricAudioFormat format{};
   format.struct_size = sizeof(format);
-  format.struct_version = FABRIC_ABI_VERSION_1;
+  format.struct_version = FABRIC_ABI_VERSION_CURRENT;
   CHECK(FabricSessionGetAudioFormat(session, &format) == FABRIC_OK);
   CHECK(format.sample_rate == expected_rate &&
         format.channel_count == expected_channels);
@@ -89,11 +89,11 @@ static bool exercise(const char *path, uint32_t expected_rate,
 
 static bool partial_native_read() {
   FabricRuntime *runtime = nullptr;
-  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) == FABRIC_OK);
+  CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
   const char *roms[] = {"even.rom", "odd.rom"};
   FabricLaunchRequest request{};
   request.struct_size = sizeof(request);
-  request.struct_version = FABRIC_ABI_VERSION_1;
+  request.struct_version = FABRIC_ABI_VERSION_CURRENT;
   std::strcpy(request.backend_kind, "amber");
   std::strcpy(request.machine_identifier, "jpm-system6");
   std::strncpy(request.backend_path, FAKE_AMBER_PARTIAL_PATH,
@@ -103,7 +103,7 @@ static bool partial_native_read() {
   FabricMachineSession *session = nullptr;
   CHECK(FabricCreateSession(runtime, &request, &session) == FABRIC_OK);
   CHECK(FabricSessionInitialise(session) == FABRIC_OK);
-  FabricAudioFormat format{sizeof(format), FABRIC_ABI_VERSION_1};
+  FabricAudioFormat format{sizeof(format), FABRIC_ABI_VERSION_CURRENT};
   CHECK(FabricSessionGetAudioFormat(session, &format) == FABRIC_OK);
   CHECK(FabricSessionAdvance(session, 1000000) == FABRIC_OK);
   int16_t samples[96]{};

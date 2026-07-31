@@ -237,9 +237,18 @@ public:
         (out.character_display_count && !out.character_displays) ||
         (out.segment_display_count && !out.segment_displays))
       return invalid("snapshot output buffer is null");
-    if (!std::isfinite(source.AlphaSegmented[0].Brightness))
-      return fail("GetOutputSnapshot",
-                  "alpha-display brightness is non-finite; index=0");
+    for (uint32_t i = 0; i < out.character_display_count; ++i) {
+      const float brightness = source.AlphaSegmented[i].Brightness;
+      if (!std::isfinite(brightness))
+        return fail("GetOutputSnapshot",
+                    "alpha-display brightness is non-finite; index=" +
+                        std::to_string(i));
+      if (brightness < 0.0f || brightness > 1.0f)
+        return fail("GetOutputSnapshot",
+                    "alpha-display brightness is outside 0.0..1.0; index=" +
+                        std::to_string(i) + "; value=" +
+                        std::to_string(brightness));
+    }
     for (uint32_t i = 0; i < 256; ++i)
       if (!std::isfinite(source.Leds[i].Brightness))
         return fail("GetOutputSnapshot",
@@ -248,7 +257,7 @@ public:
       auto &d = out.lamps[i];
       d = {};
       d.struct_size = sizeof(d);
-      d.struct_version = FABRIC_ABI_VERSION_1;
+      d.struct_version = FABRIC_ABI_VERSION_CURRENT;
       std::snprintf(d.identifier, sizeof(d.identifier), "amber.lamp.%u", i);
       d.numerical_index = static_cast<int32_t>(i);
       d.logical_state = source.MatrixLamps[i].OnOff ? 1 : 0;
@@ -262,7 +271,7 @@ public:
       auto &d = out.reels[i];
       d = {};
       d.struct_size = sizeof(d);
-      d.struct_version = FABRIC_ABI_VERSION_1;
+      d.struct_version = FABRIC_ABI_VERSION_CURRENT;
       std::snprintf(d.identifier, sizeof(d.identifier), "amber.reel.%u", i);
       d.numerical_index = static_cast<int32_t>(i);
       d.position = source.Reels[i].Position;
@@ -271,7 +280,7 @@ public:
       auto &d = out.character_displays[i];
       d = {};
       d.struct_size = sizeof(d);
-      d.struct_version = FABRIC_ABI_VERSION_1;
+      d.struct_version = FABRIC_ABI_VERSION_CURRENT;
       std::snprintf(d.identifier, sizeof(d.identifier), "amber.alpha.%u", i);
       d.character_count = PA2_NUM_ALPHA_CHARS;
       d.character_capacity = FABRIC_CHARACTER_CAPACITY;
@@ -282,12 +291,13 @@ public:
                           : native == static_cast<uint8_t>(',') ? 2
                                                                 : 0;
       }
+      d.brightness = source.AlphaSegmented[i].Brightness;
     }
     for (uint32_t i = 0; i < out.segment_display_count; ++i) {
       auto &d = out.segment_displays[i];
       d = {};
       d.struct_size = sizeof(d);
-      d.struct_version = FABRIC_ABI_VERSION_1;
+      d.struct_version = FABRIC_ABI_VERSION_CURRENT;
       std::snprintf(d.identifier, sizeof(d.identifier),
                     "amber.seven-segment.%u", i);
       d.digit_count = 1;

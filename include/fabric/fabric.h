@@ -22,7 +22,8 @@ extern "C" {
 #endif
 
 #define FABRIC_ABI_VERSION_1 UINT32_C(0x00010000)
-#define FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_1
+#define FABRIC_ABI_VERSION_2 UINT32_C(0x00020000)
+#define FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_2
 #define FABRIC_IDENTIFIER_CAPACITY 64u
 #define FABRIC_PATH_CAPACITY 1024u
 #define FABRIC_ERROR_CAPACITY 512u
@@ -134,6 +135,8 @@ typedef struct FabricCharacterDisplay {
   uint32_t character_capacity;
   uint32_t characters[FABRIC_CHARACTER_CAPACITY];
   uint8_t attributes[FABRIC_CHARACTER_CAPACITY];
+  /* Display-wide normalized intensity: 0.0f is off and 1.0f is full. */
+  float brightness;
 } FabricCharacterDisplay;
 
 typedef struct FabricSegmentDisplay {

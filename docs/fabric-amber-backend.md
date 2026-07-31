@@ -16,7 +16,9 @@ Configuration is applied after that reset and every later reset. Execution accum
 only the sub-millisecond remainder. The native `Run` result is observational, not a progress count.
 
 Snapshots are copied from the packed production structure into caller-owned Fabric lamps, reels,
-character displays, and segment displays. Audio supports the production PCM16 mono/stereo formats.
+character displays, and segment displays. A character display carries one display-wide normalized
+brightness value: `0.0f` is off and `1.0f` is full brightness. Amber System 6 alpha-display
+brightness is copied unchanged into that field. Audio supports the production PCM16 mono/stereo formats.
 Each executed tick earns `sample_rate / 1000` frames using a fractional accumulator; reads are bounded
 by earned frames, partial reads retain unused entitlement, and reset/shutdown discard it. Diagnostics
 are bounded and use the launch callback, with `FABRIC_AMBER_TRACE=1` as an opt-in file/debugger fallback.

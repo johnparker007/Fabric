@@ -13,7 +13,7 @@ int failures = 0;
 FabricLaunchRequest request(const char *kind, const char *machine, const char *path) {
     FabricLaunchRequest value{};
     value.struct_size = sizeof(value);
-    value.struct_version = FABRIC_ABI_VERSION_1;
+    value.struct_version = FABRIC_ABI_VERSION_CURRENT;
     std::strncpy(value.backend_kind, kind, sizeof(value.backend_kind) - 1);
     std::strncpy(value.machine_identifier, machine, sizeof(value.machine_identifier) - 1);
     std::strncpy(value.backend_path, path, sizeof(value.backend_path) - 1);
@@ -23,7 +23,10 @@ FabricLaunchRequest request(const char *kind, const char *machine, const char *p
 
 int main() {
     FabricRuntime *runtime = nullptr;
-    CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) == FABRIC_OK);
+    CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) ==
+          FABRIC_UNSUPPORTED_VERSION);
+    CHECK(runtime == nullptr);
+    CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
     auto first = std::make_shared<FakeBackendState>();
     auto second = std::make_shared<FakeBackendState>();
     const uint64_t unknown_capability = UINT64_C(1) << 63;
@@ -44,7 +47,7 @@ int main() {
     CHECK(first->created == 0 && second->created == 1);
     CHECK(second->received_backend_path == "/absolute/backend/library.dll");
 
-    FabricCapabilities capabilities{sizeof(FabricCapabilities), FABRIC_ABI_VERSION_1, 0, {0}};
+    FabricCapabilities capabilities{sizeof(FabricCapabilities), FABRIC_ABI_VERSION_CURRENT, 0, {0}};
     CHECK(FabricSessionGetCapabilities(session, &capabilities) == FABRIC_OK);
     CHECK((capabilities.flags & unknown_capability) != 0); // Unknown bits cross the boundary unchanged.
     CHECK(FabricSessionInitialise(session) == FABRIC_OK);
@@ -54,7 +57,7 @@ int main() {
     FabricLamp lamp{};
     FabricMachineSnapshot snapshot{};
     snapshot.struct_size = sizeof(snapshot);
-    snapshot.struct_version = FABRIC_ABI_VERSION_1;
+    snapshot.struct_version = FABRIC_ABI_VERSION_CURRENT;
     snapshot.lamps = &lamp;
     snapshot.lamp_capacity = 1;
     CHECK(FabricSessionGetSnapshot(session, &snapshot) == FABRIC_OK);
