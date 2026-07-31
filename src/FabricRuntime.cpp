@@ -36,7 +36,7 @@ bool terminated(const char *value, size_t capacity) noexcept {
 
 template <typename T> bool valid(const T *value) noexcept {
   return value && value->struct_size >= sizeof(T) &&
-         value->struct_version == FABRIC_ABI_VERSION_1;
+         value->struct_version == FABRIC_ABI_VERSION_CURRENT;
 }
 
 FabricResult remember(FabricMachineSession *session,
@@ -129,7 +129,7 @@ FabricResult FabricCreateRuntime(uint32_t requested_version,
   if (!out_runtime)
     return FABRIC_INVALID_ARGUMENT;
   *out_runtime = nullptr;
-  if (requested_version != FABRIC_ABI_VERSION_1)
+  if (requested_version != FABRIC_ABI_VERSION_CURRENT)
     return FABRIC_UNSUPPORTED_VERSION;
   try {
     *out_runtime = new FabricRuntime();
@@ -171,7 +171,7 @@ FabricResult FabricCreateSession(FabricRuntime *runtime,
   if (!runtime || !out_session)
     return FABRIC_INVALID_ARGUMENT;
   if (!request || request->struct_size < FABRIC_LAUNCH_REQUEST_V1_MIN_SIZE ||
-      request->struct_version != FABRIC_ABI_VERSION_1) {
+      request->struct_version != FABRIC_ABI_VERSION_CURRENT) {
     std::lock_guard<std::mutex> lock(runtime->mutex);
     runtime->last_error = "malformed Fabric launch request";
     return FABRIC_INVALID_ARGUMENT;

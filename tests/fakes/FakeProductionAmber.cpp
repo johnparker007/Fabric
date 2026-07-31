@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 #ifndef FAKE_AMBER_SAMPLE_RATE
 #define FAKE_AMBER_SAMPLE_RATE 44100
@@ -116,6 +117,16 @@ PRODUCTION_EXPORT uint32_t GetOutputSnapshot(void *buffer, uint32_t size) {
   s.AlphaSegmented[0].SegmentCount = 16;
   s.AlphaSegmented[0].Segments[0] = 0x1234;
   s.AlphaSegmented[0].DotComma[0] = '.';
+  float alpha_brightness = 0.5f;
+  if (switches[240])
+    alpha_brightness = 0.0f;
+  else if (switches[241])
+    alpha_brightness = 1.0f;
+  else if (switches[248])
+    alpha_brightness = 1.5f;
+  else if (switches[249])
+    alpha_brightness = std::numeric_limits<float>::quiet_NaN();
+  s.AlphaSegmented[0].Brightness = alpha_brightness;
   s.LedCount = PA2_MAX_LEDS;
   for (uint32_t bit = 0; bit < 8; ++bit)
     s.Leds[bit].OnOff = (0x5au >> bit) & 1u;

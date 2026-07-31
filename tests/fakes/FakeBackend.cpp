@@ -28,7 +28,7 @@ public:
         if (value.lamp_capacity < 1 || !value.lamps) return FABRIC_BUFFER_TOO_SMALL;
         FabricLamp lamp{};
         lamp.struct_size = sizeof(lamp);
-        lamp.struct_version = FABRIC_ABI_VERSION_1;
+        lamp.struct_version = FABRIC_ABI_VERSION_CURRENT;
         std::strcpy(lamp.identifier, "credit");
         lamp.numerical_index = 7;
         lamp.logical_state = 1;
