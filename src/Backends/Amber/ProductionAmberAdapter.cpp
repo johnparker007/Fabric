@@ -556,15 +556,18 @@ private:
                          std::to_string(config_.reels.apply_mask));
     }
     if (config_.flags & FABRIC_AMBER_CONFIGURE_COINS) {
-      if (!api_.SetCoinValue || !api_.SetCoinEnable) {
+      if (!api_.SetCoinValue || !api_.SetCoinEnable || !api_.SetLockoutVal ||
+          !api_.SetLockoutInvert) {
         return unsupported(
-            phase, "missing export 'SetCoinValue' or 'SetCoinEnable'; DLL='" +
+            phase, "missing coin-channel export (SetCoinValue, SetCoinEnable, "
+                   "SetLockoutVal, or SetLockoutInvert); DLL='" +
                        path_ + "'");
       }
       for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
         if (config_.coins.channel_apply_mask & (1u << i)) {
           const auto &c = config_.coins.channels[i];
-          if (c.value > 255 || c.enabled > 255 || c.lockout_invert > 255) {
+          if (c.value > 255 || c.enabled > 255 || c.lockout_value > 255 ||
+              c.lockout_invert > 255) {
             return unsupported(phase,
                                "coin channel value exceeds 8-bit ABI; index=" +
                                    std::to_string(i));
@@ -572,16 +575,14 @@ private:
           const auto index = static_cast<uint8_t>(i);
           api_.SetCoinEnable(index, static_cast<uint8_t>(c.enabled));
           api_.SetCoinValue(index, static_cast<uint8_t>(c.value));
-          if (!api_.SetLockoutInvert)
-            return unsupported(phase,
-                               "missing export 'SetLockoutInvert'; DLL='" +
-                                   path_ + "'");
+          api_.SetLockoutVal(index, static_cast<uint8_t>(c.lockout_value));
           api_.SetLockoutInvert(index, static_cast<uint8_t>(c.lockout_invert));
-          emit("AmberConfigureCoin",
+          emit("AmberCoinChannelApplied",
                "index=" + std::to_string(i) +
                    "; enabled=" + std::to_string(c.enabled) +
                    "; value=" + std::to_string(c.value) +
-                   "; lockout_invert=" + std::to_string(c.lockout_invert) +
+                   "; lockoutValue=" + std::to_string(c.lockout_value) +
+                   "; lockoutInvert=" + std::to_string(c.lockout_invert) +
                    "; result=success");
         }
       if (config_.coins.configuration_flags &

@@ -1,6 +1,7 @@
 #include "fabric/fabric.h"
 #include "fabric/fabric_amber.h"
 
+#include <cstddef>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -40,6 +41,11 @@ static void FABRIC_CALL diagnostic(const char *message, void *context) {
 }
 
 int main() {
+  CHECK(sizeof(FabricAmberCoinChannelConfigV1) == 20);
+  CHECK(offsetof(FabricAmberCoinChannelConfigV1, lockout_value) == 12);
+  CHECK(offsetof(FabricAmberCoinChannelConfigV1, lockout_invert) == 16);
+  CHECK(sizeof(FabricAmberCoinConfigurationV1) == 408);
+  CHECK(sizeof(FabricAmberConfigurationV1) == 648);
   FabricRuntime *runtime = nullptr;
   CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
   auto bad = request(FAKE_PRODUCTION_AMBER_MISSING_REQUIRED_PATH);
@@ -76,9 +82,12 @@ int main() {
   c.reels.reels[0].enabled = 1;
   c.coins.struct_size = sizeof(c.coins);
   c.coins.version = FABRIC_AMBER_COIN_CONFIGURATION_VERSION_1;
-  c.coins.channel_apply_mask = 1;
-  c.coins.channels[0].value = 4;
-  c.coins.channels[0].enabled = 1;
+  c.coins.channel_apply_mask = 0x7;
+  c.coins.channels[0] = {0, 1, 4, 0, 1};
+  c.coins.channels[1] = {1, 0, 10, 2, 0};
+  c.coins.channels[2] = {2, 1, 20, 1, 0};
+  /* Populated but deliberately omitted from channel_apply_mask. */
+  c.coins.channels[3] = {3, 1, 50, 2, 1};
   c.percentage_switch = 7;
   auto good = request(FAKE_PRODUCTION_AMBER_PATH);
   good.rom_resources = roms;
@@ -90,7 +99,6 @@ int main() {
   good.diagnostic_user_data = &diagnostics;
   CHECK(FabricCreateSession(runtime, &good, &session) == FABRIC_OK);
   CHECK(FabricSessionInitialise(session) == FABRIC_OK);
-  CHECK(FabricSessionReset(session) == FABRIC_OK);
   FabricAudioFormat format{};
   format.struct_size = sizeof(format);
   format.struct_version = FABRIC_ABI_VERSION_CURRENT;
@@ -118,6 +126,25 @@ int main() {
   snap.character_display_capacity = 1;
   snap.segment_displays = segments;
   snap.segment_display_capacity = 16;
+  auto check_coin_configuration = [&]() {
+    const uint32_t expected[3][4] = {
+        {4, 1, 0, 1}, {10, 0, 2, 0}, {20, 1, 1, 0}};
+    for (uint32_t channel = 0; channel < 3; ++channel)
+      for (uint32_t setter = 0; setter < 4; ++setter) {
+        const auto &lamp = lamps[16 + channel * 4 + setter];
+        CHECK(lamp.logical_state == 1);
+        CHECK(lamp.brightness == static_cast<float>(expected[channel][setter]));
+      }
+    for (uint32_t setter = 0; setter < 4; ++setter)
+      CHECK(lamps[16 + 3 * 4 + setter].logical_state == 0);
+    return 0;
+  };
+  /* Initialise performs the startup Reset and applies all four setters. */
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(check_coin_configuration() == 0);
+  CHECK(FabricSessionReset(session) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(check_coin_configuration() == 0);
   CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
   CHECK(lamps[0].logical_state == 1 && lamps[1].logical_state == 1 &&
         lamps[1].brightness == 4.0f);
@@ -200,12 +227,16 @@ int main() {
     }
   }
   CHECK(run_diagnostics == 13);
-  bool selected = false, loaded = false;
+  bool selected = false, loaded = false, coin_applied = false;
   for (const auto &message : diagnostics) {
     selected |= message.find("operation=AdapterSelected") != std::string::npos;
     loaded |= message.find("operation=AmberLibraryLoaded") != std::string::npos;
+    coin_applied |=
+        message.find("operation=AmberCoinChannelApplied") != std::string::npos &&
+        message.find("index=2; enabled=1; value=20; lockoutValue=1; "
+                     "lockoutInvert=0") != std::string::npos;
   }
-  CHECK(selected && loaded);
+  CHECK(selected && loaded && coin_applied);
   CHECK(FabricSessionReadAudio(session, audio, 4, &written) == FABRIC_OK);
   input.numerical_index = 250;
   input.active = 1;

@@ -18,7 +18,7 @@ typedef struct FabricAmberReelConfigurationV1 {
   FabricAmberReelConfigV1 reels[FABRIC_AMBER_MAX_REELS];
 } FabricAmberReelConfigurationV1;
 typedef struct FabricAmberCoinChannelConfigV1 {
-  uint32_t channel_index, enabled, value, lockout_invert, reserved;
+  uint32_t channel_index, enabled, value, lockout_value, lockout_invert;
 } FabricAmberCoinChannelConfigV1;
 typedef struct FabricAmberCoinRouteConfigV1 {
   uint32_t route_index, enabled, counter_in, counter_out, port_index, coin_code,

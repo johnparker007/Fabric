@@ -27,6 +27,8 @@ uint32_t run_calls;
 uint8_t switches[256];
 uint8_t reel_steps[PA2_NUM_REELS];
 uint8_t coin_values[16];
+uint32_t coin_setter_calls[16][4];
+uint8_t coin_setter_values[16][4];
 uint8_t percentage;
 uint32_t reset_count;
 uint8_t configuration_stage;
@@ -48,6 +50,8 @@ PRODUCTION_EXPORT void Reset() {
   cycles = 0;
   std::memset(reel_steps, 0, sizeof(reel_steps));
   std::memset(coin_values, 0, sizeof(coin_values));
+  std::memset(coin_setter_calls, 0, sizeof(coin_setter_calls));
+  std::memset(coin_setter_values, 0, sizeof(coin_setter_values));
   percentage = 0;
   configuration_stage = 0;
   ++reset_count;
@@ -79,13 +83,32 @@ PRODUCTION_EXPORT void SetSteps(uint8_t i, uint8_t value) {
 }
 #endif
 PRODUCTION_EXPORT void SetCoinValue(uint8_t i, uint8_t value) {
-  if (i < 16)
+  if (i < 16) {
     coin_values[i] = value;
+    ++coin_setter_calls[i][0];
+    coin_setter_values[i][0] = value;
+  }
   if (configuration_stage == 1)
     configuration_stage = 2;
 }
-PRODUCTION_EXPORT void SetCoinEnable(uint8_t, uint8_t) {}
-PRODUCTION_EXPORT void SetLockoutInvert(uint8_t, uint8_t) {}
+PRODUCTION_EXPORT void SetCoinEnable(uint8_t i, uint8_t value) {
+  if (i < 16) {
+    ++coin_setter_calls[i][1];
+    coin_setter_values[i][1] = value;
+  }
+}
+PRODUCTION_EXPORT void SetLockoutVal(uint8_t i, uint8_t value) {
+  if (i < 16) {
+    ++coin_setter_calls[i][2];
+    coin_setter_values[i][2] = value;
+  }
+}
+PRODUCTION_EXPORT void SetLockoutInvert(uint8_t i, uint8_t value) {
+  if (i < 16) {
+    ++coin_setter_calls[i][3];
+    coin_setter_values[i][3] = value;
+  }
+}
 PRODUCTION_EXPORT void SetPercent(uint8_t value) {
   percentage = value;
   if (configuration_stage == 2)
@@ -111,6 +134,13 @@ PRODUCTION_EXPORT uint32_t GetOutputSnapshot(void *buffer, uint32_t size) {
   s.MatrixLamps[2].Brightness = static_cast<float>(run_calls);
   s.MatrixLamps[3].Brightness = static_cast<float>(configuration_stage);
   s.MatrixLamps[4].Brightness = static_cast<float>(reset_count);
+  for (uint32_t channel = 0; channel < 6; ++channel)
+    for (uint32_t setter = 0; setter < 4; ++setter) {
+      const uint32_t lamp = 16 + channel * 4 + setter;
+      s.MatrixLamps[lamp].OnOff = coin_setter_calls[channel][setter];
+      s.MatrixLamps[lamp].Brightness =
+          static_cast<float>(coin_setter_values[channel][setter]);
+    }
   s.ReelCount = PA2_NUM_REELS;
   s.Reels[0].Position = static_cast<int32_t>(cycles + reel_steps[0]);
   s.AlphaSegmentedDisplayCount = 1;
