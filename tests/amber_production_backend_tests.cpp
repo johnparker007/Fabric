@@ -47,6 +47,12 @@ int main() {
   CHECK(FabricCreateSession(runtime, &bad, &session) == FABRIC_NOT_SUPPORTED);
   CHECK(error(runtime).find("required export 'Initialise'") !=
         std::string::npos);
+  auto missing_coin = request(FAKE_PRODUCTION_AMBER_MISSING_COIN_IN_PATH);
+  CHECK(FabricCreateSession(runtime, &missing_coin, &session) == FABRIC_NOT_SUPPORTED);
+  CHECK(error(runtime).find("required export 'CoinIn'") != std::string::npos);
+  auto missing_mechanism = request(FAKE_PRODUCTION_AMBER_MISSING_MECHANISM_PATH);
+  CHECK(FabricCreateSession(runtime, &missing_mechanism, &session) == FABRIC_NOT_SUPPORTED);
+  CHECK(error(runtime).find("required export 'SetCommStyle'") != std::string::npos);
   const char *program[] = {"program-even.rom", "program-odd.rom"};
   FabricRomResource roms[3]{};
   for (auto &r : roms) {
@@ -62,10 +68,10 @@ int main() {
   roms[2].role = FABRIC_ROM_ROLE_PROGRAM;
   roms[2].slot = 0;
   roms[2].path = program[0];
-  FabricAmberConfigurationV1 c{};
+  FabricAmberConfigurationV2 c{};
   c.magic = FABRIC_AMBER_CONFIGURATION_MAGIC;
   c.struct_size = sizeof(c);
-  c.version = FABRIC_AMBER_CONFIGURATION_VERSION_1;
+  c.version = FABRIC_AMBER_CONFIGURATION_VERSION_2;
   c.flags = FABRIC_AMBER_CONFIGURE_REELS | FABRIC_AMBER_CONFIGURE_COINS |
             FABRIC_AMBER_CONFIGURE_PERCENTAGE;
   c.reels.struct_size = sizeof(c.reels);
@@ -75,11 +81,23 @@ int main() {
   c.reels.reels[0].steps = 9;
   c.reels.reels[0].enabled = 1;
   c.coins.struct_size = sizeof(c.coins);
-  c.coins.version = FABRIC_AMBER_COIN_CONFIGURATION_VERSION_1;
+  c.coins.version = FABRIC_AMBER_COIN_CONFIGURATION_VERSION_2;
   c.coins.channel_apply_mask = 1;
+  c.coins.coin_communication_style = 0;
+  c.coins.coin_communication_invert = 0;
+  c.coins.coin_pulse_cycles = 800000;
+  c.coins.coin_edc_enabled = 0;
+  c.coins.channels[0].channel_index = 0;
   c.coins.channels[0].value = 4;
   c.coins.channels[0].enabled = 1;
   c.percentage_switch = 7;
+  auto obsolete_configuration = c;
+  obsolete_configuration.version = 1;
+  auto obsolete_request = request(FAKE_PRODUCTION_AMBER_PATH);
+  obsolete_request.machine_configuration = &obsolete_configuration;
+  obsolete_request.machine_configuration_size = sizeof(obsolete_configuration);
+  CHECK(FabricCreateSession(runtime, &obsolete_request, &session) ==
+        FABRIC_INVALID_ARGUMENT);
   auto good = request(FAKE_PRODUCTION_AMBER_PATH);
   good.rom_resources = roms;
   good.rom_resource_count = 3;
@@ -91,6 +109,10 @@ int main() {
   CHECK(FabricCreateSession(runtime, &good, &session) == FABRIC_OK);
   CHECK(FabricSessionInitialise(session) == FABRIC_OK);
   CHECK(FabricSessionReset(session) == FABRIC_OK);
+  FabricCapabilities capabilities{sizeof(FabricCapabilities), FABRIC_ABI_VERSION_CURRENT, 0, {0}};
+  CHECK(FabricSessionGetCapabilities(session, &capabilities) == FABRIC_OK);
+  CHECK((capabilities.flags & FABRIC_CAPABILITY_DIGITAL_INPUT) != 0);
+  CHECK((capabilities.flags & FABRIC_CAPABILITY_COIN_INPUT) != 0);
   FabricAudioFormat format{};
   format.struct_size = sizeof(format);
   format.struct_version = FABRIC_ABI_VERSION_CURRENT;
@@ -126,6 +148,40 @@ int main() {
         chars[0].brightness == 0.5f);
   CHECK(segments[0].segment_masks[0] == 0x5a);
   CHECK(lamps[3].brightness == 3.0f && lamps[4].brightness >= 1.0f);
+  CHECK(lamps[8].brightness == 8.0f && lamps[9].brightness == 800000.0f);
+  CHECK(lamps[10].brightness == 0.0f && lamps[11].brightness == 0.0f);
+
+  /* Coin actions carry an explicit channel and denomination. A held action is
+   * edge-triggered; release only rearms it and never calls Amber. */
+  const float switch_calls_before_coins = lamps[7].brightness;
+  input.kind = FABRIC_INPUT_COIN;
+  input.coin_channel = 0;
+  input.coin_value = 0;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(lamps[5].brightness == 1.0f && lamps[6].brightness == 0.0f);
+  CHECK(lamps[7].brightness == switch_calls_before_coins);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.coin_channel = 5;
+  input.coin_value = 12;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.coin_channel = 6;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_INVALID_ARGUMENT);
+  input.coin_channel = 5;
+  input.coin_value = 13;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_INVALID_ARGUMENT);
+  input.coin_value = 11;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_INPUT_REJECTED);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.kind = FABRIC_INPUT_DIGITAL;
+  input.coin_channel = input.coin_value = 0;
 
   /* Exercise alpha brightness through the complete fake Amber -> adapter ->
    * public snapshot path, while checking the other display transports stay

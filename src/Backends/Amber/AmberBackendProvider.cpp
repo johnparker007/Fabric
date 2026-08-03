@@ -84,15 +84,15 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
   if (!request.machine_configuration_size)
     return FABRIC_OK;
   if (!request.machine_configuration || request.machine_configuration_size !=
-                                            sizeof(FabricAmberConfigurationV1)) {
+                                            sizeof(FabricAmberConfigurationV2)) {
     error = "malformed Amber backend configuration size";
     return FABRIC_INVALID_ARGUMENT;
   }
-  const auto &c = *static_cast<const FabricAmberConfigurationV1 *>(
+  const auto &c = *static_cast<const FabricAmberConfigurationV2 *>(
       request.machine_configuration);
   if (c.magic != FABRIC_AMBER_CONFIGURATION_MAGIC ||
       c.struct_size != sizeof(c) ||
-      c.version != FABRIC_AMBER_CONFIGURATION_VERSION_1 ||
+      c.version != FABRIC_AMBER_CONFIGURATION_VERSION_2 ||
       (c.flags & ~UINT32_C(7))) {
     error = "malformed Amber backend configuration";
     return FABRIC_INVALID_ARGUMENT;
@@ -107,13 +107,29 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
   }
   if ((c.flags & FABRIC_AMBER_CONFIGURE_COINS) &&
       (c.coins.struct_size != sizeof(c.coins) ||
-       c.coins.version != FABRIC_AMBER_COIN_CONFIGURATION_VERSION_1 ||
+       c.coins.version != FABRIC_AMBER_COIN_CONFIGURATION_VERSION_2 ||
        (c.coins.channel_apply_mask &
         ~((UINT32_C(1) << FABRIC_AMBER_MAX_COIN_CHANNELS) - 1)) ||
        (c.coins.route_apply_mask &
-        ~((UINT32_C(1) << FABRIC_AMBER_MAX_COIN_ROUTES) - 1)))) {
+        ~((UINT32_C(1) << FABRIC_AMBER_MAX_COIN_ROUTES) - 1)) ||
+       c.coins.coin_communication_style != 0 ||
+       c.coins.coin_communication_invert > 1 ||
+       c.coins.coin_pulse_cycles == 0 || c.coins.coin_edc_enabled > 1)) {
     error = "malformed Amber coin configuration";
     return FABRIC_INVALID_ARGUMENT;
+  }
+  if (c.flags & FABRIC_AMBER_CONFIGURE_COINS) {
+    for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i) {
+      if (!(c.coins.channel_apply_mask & (UINT32_C(1) << i)))
+        continue;
+      const auto &channel = c.coins.channels[i];
+      if (channel.channel_index != i || channel.enabled > 1 ||
+          channel.value > 12 || channel.lockout_invert > 1 ||
+          channel.reserved != 0) {
+        error = "malformed Amber coin channel configuration";
+        return FABRIC_INVALID_ARGUMENT;
+      }
+    }
   }
   if ((c.flags & FABRIC_AMBER_CONFIGURE_PERCENTAGE) &&
       c.percentage_switch > 15) {

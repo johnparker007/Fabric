@@ -10,13 +10,27 @@ _Static_assert(offsetof(FabricCharacterDisplay, brightness) == 160,
                "character display brightness offset");
 _Static_assert(sizeof(FabricCharacterDisplay) == 164,
                "character display ABI size");
-_Static_assert(FABRIC_ABI_VERSION_CURRENT == UINT32_C(0x00020000),
+_Static_assert(FABRIC_ABI_VERSION_CURRENT == UINT32_C(0x00030000),
                "current ABI version");
 _Static_assert(sizeof(((FabricSegmentDisplay *)0)->segment_masks) ==
                    FABRIC_SEGMENT_DIGIT_CAPACITY * sizeof(uint64_t),
                "inline segment ownership");
 _Static_assert(sizeof(FabricAmberReelConfigurationV1) == 208,
                "Amber reel configuration layout");
+_Static_assert(sizeof(FabricInput) == 88, "Fabric input ABI size");
+_Static_assert(offsetof(FabricInput, numerical_index) == 72, "input index offset");
+_Static_assert(offsetof(FabricInput, kind) == 76, "input kind offset");
+_Static_assert(offsetof(FabricInput, active) == 80, "input active offset");
+_Static_assert(offsetof(FabricInput, coin_channel) == 81, "coin channel offset");
+_Static_assert(offsetof(FabricInput, coin_value) == 82, "coin value offset");
+_Static_assert(FABRIC_CAPABILITY_COIN_INPUT == (UINT64_C(1) << 6),
+               "coin capability bit");
+_Static_assert(sizeof(FabricAmberCoinConfigurationV2) == 408,
+               "Amber coin v2 configuration layout");
+_Static_assert(offsetof(FabricAmberCoinConfigurationV2, coin_pulse_cycles) == 24,
+               "Amber pulse-cycle offset");
+_Static_assert(sizeof(FabricAmberConfigurationV2) == 648,
+               "Amber machine v2 configuration layout");
 int main(void) {
   FabricRuntime *runtime = 0;
   if (FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) != FABRIC_OK)

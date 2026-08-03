@@ -26,6 +26,9 @@ int main() {
     CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_1, &runtime) ==
           FABRIC_UNSUPPORTED_VERSION);
     CHECK(runtime == nullptr);
+    CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_2, &runtime) ==
+          FABRIC_UNSUPPORTED_VERSION);
+    CHECK(runtime == nullptr);
     CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
     auto first = std::make_shared<FakeBackendState>();
     auto second = std::make_shared<FakeBackendState>();

@@ -210,6 +210,11 @@ struct ProductionAmberApi {
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *GetOutputSnapshot)(void *, uint32_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *TurnSwitchOn)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *TurnSwitchOff)(uint8_t) = nullptr;
+  uint8_t (FABRIC_PRODUCTION_AMBER_CALL *CoinIn)(uint8_t, uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetCommStyle)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetCommInvert)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetCycles)(uint32_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetEDCEnable)(uint8_t) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *LoadSoundROM)(uint8_t *, uint8_t *, uint8_t *, uint8_t *) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *GetAudioFormat)(PA2_AudioFormat *, uint32_t) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *FillAudioFrames)(int16_t *, uint32_t) = nullptr;
@@ -219,7 +224,6 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *SetSteps)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCoinValue)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCoinEnable)(uint8_t, uint8_t) = nullptr;
-  void (FABRIC_PRODUCTION_AMBER_CALL *SetLockoutVal)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetLockoutInvert)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetEnable)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCounterIn)(uint8_t, uint32_t) = nullptr;
