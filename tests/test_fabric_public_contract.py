@@ -29,6 +29,15 @@ class FabricPublicContractTests(unittest.TestCase):
         for forbidden in ("loadlibrary", "dlopen", "process_handle", "grpc", "json"):
             self.assertNotIn(forbidden, header)
 
+    def test_current_input_contract_has_explicit_coin_fields(self):
+        header = (ROOT / "include/fabric/fabric.h").read_text()
+        self.assertIn("FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_3", header)
+        self.assertIn("FABRIC_INPUT_COIN = 1", header)
+        self.assertIn("uint32_t coin_channel;", header)
+        self.assertIn("uint32_t coin_value;", header)
+        self.assertIn("FABRIC_CAPABILITY_COIN_INPUT", header)
+        self.assertIn("FABRIC_INPUT_REJECTED", header)
+
 
 if __name__ == "__main__":
     unittest.main()

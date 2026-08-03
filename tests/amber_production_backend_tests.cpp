@@ -44,14 +44,25 @@ int main() {
   CHECK(sizeof(FabricAmberCoinChannelConfigV1) == 20);
   CHECK(offsetof(FabricAmberCoinChannelConfigV1, lockout_value) == 12);
   CHECK(offsetof(FabricAmberCoinChannelConfigV1, lockout_invert) == 16);
-  CHECK(sizeof(FabricAmberCoinConfigurationV1) == 408);
-  CHECK(sizeof(FabricAmberConfigurationV1) == 648);
+  CHECK(sizeof(FabricInput) == 92);
+  CHECK(sizeof(FabricAmberCoinConfigurationV2) == 424);
+  CHECK(sizeof(FabricAmberConfigurationV2) == 664);
   FabricRuntime *runtime = nullptr;
   CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
   auto bad = request(FAKE_PRODUCTION_AMBER_MISSING_REQUIRED_PATH);
   FabricMachineSession *session = nullptr;
   CHECK(FabricCreateSession(runtime, &bad, &session) == FABRIC_NOT_SUPPORTED);
   CHECK(error(runtime).find("required export 'Initialise'") !=
+        std::string::npos);
+  auto missing_coin = request(FAKE_PRODUCTION_AMBER_MISSING_COIN_IN_PATH);
+  CHECK(FabricCreateSession(runtime, &missing_coin, &session) ==
+        FABRIC_NOT_SUPPORTED);
+  CHECK(error(runtime).find("required export 'CoinIn'") != std::string::npos);
+  auto missing_mechanism =
+      request(FAKE_PRODUCTION_AMBER_MISSING_COIN_MECHANISM_PATH);
+  CHECK(FabricCreateSession(runtime, &missing_mechanism, &session) ==
+        FABRIC_NOT_SUPPORTED);
+  CHECK(error(runtime).find("required export 'SetCommStyle'") !=
         std::string::npos);
   const char *program[] = {"program-even.rom", "program-odd.rom"};
   FabricRomResource roms[3]{};
@@ -68,10 +79,10 @@ int main() {
   roms[2].role = FABRIC_ROM_ROLE_PROGRAM;
   roms[2].slot = 0;
   roms[2].path = program[0];
-  FabricAmberConfigurationV1 c{};
+  FabricAmberConfigurationV2 c{};
   c.magic = FABRIC_AMBER_CONFIGURATION_MAGIC;
   c.struct_size = sizeof(c);
-  c.version = FABRIC_AMBER_CONFIGURATION_VERSION_1;
+  c.version = FABRIC_AMBER_CONFIGURATION_VERSION_2;
   c.flags = FABRIC_AMBER_CONFIGURE_REELS | FABRIC_AMBER_CONFIGURE_COINS |
             FABRIC_AMBER_CONFIGURE_PERCENTAGE;
   c.reels.struct_size = sizeof(c.reels);
@@ -81,13 +92,18 @@ int main() {
   c.reels.reels[0].steps = 9;
   c.reels.reels[0].enabled = 1;
   c.coins.struct_size = sizeof(c.coins);
-  c.coins.version = FABRIC_AMBER_COIN_CONFIGURATION_VERSION_1;
+  c.coins.version = FABRIC_AMBER_COIN_CONFIGURATION_VERSION_2;
   c.coins.channel_apply_mask = 0x7;
   c.coins.channels[0] = {0, 1, 4, 0, 1};
   c.coins.channels[1] = {1, 0, 10, 2, 0};
   c.coins.channels[2] = {2, 1, 20, 1, 0};
   /* Populated but deliberately omitted from channel_apply_mask. */
   c.coins.channels[3] = {3, 1, 50, 2, 1};
+  c.coins.coin_communication_style =
+      FABRIC_AMBER_COIN_COMMUNICATION_PARALLEL;
+  c.coins.coin_communication_invert = 0;
+  c.coins.coin_pulse_cycles = 800000;
+  c.coins.coin_edc_enabled = 0;
   c.percentage_switch = 7;
   auto good = request(FAKE_PRODUCTION_AMBER_PATH);
   good.rom_resources = roms;
@@ -99,6 +115,11 @@ int main() {
   good.diagnostic_user_data = &diagnostics;
   CHECK(FabricCreateSession(runtime, &good, &session) == FABRIC_OK);
   CHECK(FabricSessionInitialise(session) == FABRIC_OK);
+  FabricCapabilities capabilities{sizeof(capabilities),
+                                  FABRIC_ABI_VERSION_CURRENT};
+  CHECK(FabricSessionGetCapabilities(session, &capabilities) == FABRIC_OK);
+  CHECK((capabilities.flags & FABRIC_CAPABILITY_DIGITAL_INPUT) != 0);
+  CHECK((capabilities.flags & FABRIC_CAPABILITY_COIN_INPUT) != 0);
   FabricAudioFormat format{};
   format.struct_size = sizeof(format);
   format.struct_version = FABRIC_ABI_VERSION_CURRENT;
@@ -137,11 +158,52 @@ int main() {
       }
     for (uint32_t setter = 0; setter < 4; ++setter)
       CHECK(lamps[16 + 3 * 4 + setter].logical_state == 0);
+    const uint32_t mechanism[4] = {FABRIC_AMBER_COIN_COMMUNICATION_PARALLEL,
+                                   0, 800000, 0};
+    for (uint32_t setter = 0; setter < 4; ++setter) {
+      CHECK(lamps[44 + setter].logical_state == 1);
+      CHECK(lamps[44 + setter].brightness ==
+            static_cast<float>(mechanism[setter]));
+    }
     return 0;
   };
   /* Initialise performs the startup Reset and applies all four setters. */
   CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
   CHECK(check_coin_configuration() == 0);
+  const float switch_on_before_coin = lamps[42].brightness;
+  const float switch_off_before_coin = lamps[43].brightness;
+  input.kind = FABRIC_INPUT_COIN;
+  input.coin_channel = 2;
+  input.coin_value = 3;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(lamps[48].brightness == 1.0f && lamps[40].brightness == 2.0f);
+  CHECK(lamps[41].brightness == 3.0f);
+  CHECK(lamps[42].brightness == switch_on_before_coin);
+  CHECK(lamps[43].brightness == switch_off_before_coin);
+  input.coin_value = 4;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_INPUT_REJECTED);
+  input.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_OK);
+  input.coin_channel = FABRIC_AMBER_MAX_COIN_CHANNELS;
+  input.coin_value = 3;
+  input.active = 1;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_INVALID_ARGUMENT);
+  input.coin_channel = 2;
+  input.coin_value = 256;
+  CHECK(FabricSessionSubmitInput(session, &input) == FABRIC_INVALID_ARGUMENT);
+  CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
+  CHECK(lamps[48].brightness == 2.0f && lamps[41].brightness == 4.0f);
+  CHECK(lamps[42].brightness == switch_on_before_coin);
+  CHECK(lamps[43].brightness == switch_off_before_coin);
+  input.kind = FABRIC_INPUT_DIGITAL;
+  input.coin_channel = input.coin_value = 0;
+  input.active = 1;
   CHECK(FabricSessionReset(session) == FABRIC_OK);
   CHECK(FabricSessionGetSnapshot(session, &snap) == FABRIC_OK);
   CHECK(check_coin_configuration() == 0);
@@ -228,6 +290,8 @@ int main() {
   }
   CHECK(run_diagnostics == 13);
   bool selected = false, loaded = false, coin_applied = false;
+  bool mechanism_configured = false, coin_accepted = false,
+       coin_rejected = false;
   for (const auto &message : diagnostics) {
     selected |= message.find("operation=AdapterSelected") != std::string::npos;
     loaded |= message.find("operation=AmberLibraryLoaded") != std::string::npos;
@@ -235,8 +299,22 @@ int main() {
         message.find("operation=AmberCoinChannelApplied") != std::string::npos &&
         message.find("index=2; enabled=1; value=20; lockoutValue=1; "
                      "lockoutInvert=0") != std::string::npos;
+    mechanism_configured |=
+        message.find("operation=AmberCoinMechanismConfigured") !=
+            std::string::npos &&
+        message.find("style=parallel; invert=0; cycles=800000; edc=0") !=
+            std::string::npos;
+    coin_accepted |= message.find("operation=AmberCoinInput") !=
+                         std::string::npos &&
+                     message.find("channel=2; value=3; result=accepted") !=
+                         std::string::npos;
+    coin_rejected |= message.find("operation=AmberCoinInput") !=
+                         std::string::npos &&
+                     message.find("channel=2; value=4; result=rejected") !=
+                         std::string::npos;
   }
-  CHECK(selected && loaded && coin_applied);
+  CHECK(selected && loaded && coin_applied && mechanism_configured &&
+        coin_accepted && coin_rejected);
   CHECK(FabricSessionReadAudio(session, audio, 4, &written) == FABRIC_OK);
   input.numerical_index = 250;
   input.active = 1;

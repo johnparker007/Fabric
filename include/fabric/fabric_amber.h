@@ -7,7 +7,7 @@
 #define FABRIC_AMBER_MAX_COIN_CHANNELS 6u
 #define FABRIC_AMBER_MAX_COIN_ROUTES 8u
 #define FABRIC_AMBER_REEL_CONFIGURATION_VERSION_1 1u
-#define FABRIC_AMBER_COIN_CONFIGURATION_VERSION_1 1u
+#define FABRIC_AMBER_COIN_CONFIGURATION_VERSION_2 2u
 #define FABRIC_AMBER_COIN_CONFIG_APPLY_LOCKOUT_PORT UINT32_C(1)
 
 typedef struct FabricAmberReelConfigV1 {
@@ -24,21 +24,27 @@ typedef struct FabricAmberCoinRouteConfigV1 {
   uint32_t route_index, enabled, counter_in, counter_out, port_index, coin_code,
       level, full_level;
 } FabricAmberCoinRouteConfigV1;
-typedef struct FabricAmberCoinConfigurationV1 {
+typedef enum FabricAmberCoinCommunicationStyle {
+  /* Value defined by Amber's CoinMech CommunicationStyle enumeration. */
+  FABRIC_AMBER_COIN_COMMUNICATION_PARALLEL = 0
+} FabricAmberCoinCommunicationStyle;
+typedef struct FabricAmberCoinConfigurationV2 {
   uint32_t struct_size, version, channel_apply_mask, route_apply_mask;
   FabricAmberCoinChannelConfigV1 channels[FABRIC_AMBER_MAX_COIN_CHANNELS];
   FabricAmberCoinRouteConfigV1 routes[FABRIC_AMBER_MAX_COIN_ROUTES];
   uint32_t lockout_port_base, lockout_port_value, configuration_flags, reserved;
-} FabricAmberCoinConfigurationV1;
+  uint32_t coin_communication_style, coin_communication_invert;
+  uint32_t coin_pulse_cycles, coin_edc_enabled;
+} FabricAmberCoinConfigurationV2;
 
 #define FABRIC_AMBER_CONFIGURATION_MAGIC UINT32_C(0x32424146)
-#define FABRIC_AMBER_CONFIGURATION_VERSION_1 1u
-typedef struct FabricAmberConfigurationV1 {
+#define FABRIC_AMBER_CONFIGURATION_VERSION_2 2u
+typedef struct FabricAmberConfigurationV2 {
   uint32_t magic, struct_size, version, flags;
   FabricAmberReelConfigurationV1 reels;
-  FabricAmberCoinConfigurationV1 coins;
+  FabricAmberCoinConfigurationV2 coins;
   uint32_t percentage_switch, reserved[3];
-} FabricAmberConfigurationV1;
+} FabricAmberConfigurationV2;
 #define FABRIC_AMBER_CONFIGURE_REELS UINT32_C(1)
 #define FABRIC_AMBER_CONFIGURE_COINS UINT32_C(2)
 #define FABRIC_AMBER_CONFIGURE_PERCENTAGE UINT32_C(4)

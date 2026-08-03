@@ -32,6 +32,10 @@ uint8_t coin_setter_values[16][4];
 uint8_t percentage;
 uint32_t reset_count;
 uint8_t configuration_stage;
+uint32_t coin_in_calls, switch_on_calls, switch_off_calls;
+uint8_t last_coin_channel, last_coin_value;
+uint32_t mechanism_setter_calls[4];
+uint32_t mechanism_values[4];
 } // namespace
 
 PRODUCTION_EXPORT float GetDLLVersion() { return 1.0f; }
@@ -54,6 +58,9 @@ PRODUCTION_EXPORT void Reset() {
   std::memset(coin_setter_values, 0, sizeof(coin_setter_values));
   percentage = 0;
   configuration_stage = 0;
+  coin_in_calls = switch_on_calls = switch_off_calls = 0;
+  std::memset(mechanism_setter_calls, 0, sizeof(mechanism_setter_calls));
+  std::memset(mechanism_values, 0, sizeof(mechanism_values));
   ++reset_count;
 }
 /* Musashi's return is observable production information, not the ABI's consumed
@@ -70,8 +77,40 @@ PRODUCTION_EXPORT uint32_t LoadSoundROM(uint8_t *a, uint8_t *, uint8_t *,
                                     uint8_t *) {
   return initialised && a ? 1u : 0u;
 }
-PRODUCTION_EXPORT void TurnSwitchOn(uint8_t i) { switches[i] = 1; }
-PRODUCTION_EXPORT void TurnSwitchOff(uint8_t i) { switches[i] = 0; }
+PRODUCTION_EXPORT void TurnSwitchOn(uint8_t i) {
+  switches[i] = 1;
+  ++switch_on_calls;
+}
+PRODUCTION_EXPORT void TurnSwitchOff(uint8_t i) {
+  switches[i] = 0;
+  ++switch_off_calls;
+}
+#ifndef FAKE_AMBER_OMIT_COIN_IN
+PRODUCTION_EXPORT uint8_t CoinIn(uint8_t channel, uint8_t value) {
+  ++coin_in_calls;
+  last_coin_channel = channel;
+  last_coin_value = value;
+  return value == 4 ? 0 : 1;
+}
+#endif
+#ifndef FAKE_AMBER_OMIT_SET_COMM_STYLE
+PRODUCTION_EXPORT void SetCommStyle(uint8_t value) {
+  ++mechanism_setter_calls[0];
+  mechanism_values[0] = value;
+}
+#endif
+PRODUCTION_EXPORT void SetCommInvert(uint8_t value) {
+  ++mechanism_setter_calls[1];
+  mechanism_values[1] = value;
+}
+PRODUCTION_EXPORT void SetCycles(uint32_t value) {
+  ++mechanism_setter_calls[2];
+  mechanism_values[2] = value;
+}
+PRODUCTION_EXPORT void SetEDCEnable(uint8_t value) {
+  ++mechanism_setter_calls[3];
+  mechanism_values[3] = value;
+}
 PRODUCTION_EXPORT void SetOptoInvert(uint8_t, uint8_t) {}
 PRODUCTION_EXPORT void SetOptoStart(uint8_t, uint8_t) {}
 PRODUCTION_EXPORT void SetOptoEnd(uint8_t, uint8_t) {}
@@ -141,6 +180,17 @@ PRODUCTION_EXPORT uint32_t GetOutputSnapshot(void *buffer, uint32_t size) {
       s.MatrixLamps[lamp].Brightness =
           static_cast<float>(coin_setter_values[channel][setter]);
     }
+  s.MatrixLamps[40].OnOff = coin_in_calls;
+  s.MatrixLamps[40].Brightness = static_cast<float>(last_coin_channel);
+  s.MatrixLamps[41].Brightness = static_cast<float>(last_coin_value);
+  s.MatrixLamps[48].Brightness = static_cast<float>(coin_in_calls);
+  s.MatrixLamps[42].Brightness = static_cast<float>(switch_on_calls);
+  s.MatrixLamps[43].Brightness = static_cast<float>(switch_off_calls);
+  for (uint32_t setter = 0; setter < 4; ++setter) {
+    s.MatrixLamps[44 + setter].OnOff = mechanism_setter_calls[setter];
+    s.MatrixLamps[44 + setter].Brightness =
+        static_cast<float>(mechanism_values[setter]);
+  }
   s.ReelCount = PA2_NUM_REELS;
   s.Reels[0].Position = static_cast<int32_t>(cycles + reel_steps[0]);
   s.AlphaSegmentedDisplayCount = 1;

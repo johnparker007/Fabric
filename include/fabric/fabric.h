@@ -23,7 +23,8 @@ extern "C" {
 
 #define FABRIC_ABI_VERSION_1 UINT32_C(0x00010000)
 #define FABRIC_ABI_VERSION_2 UINT32_C(0x00020000)
-#define FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_2
+#define FABRIC_ABI_VERSION_3 UINT32_C(0x00030000)
+#define FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_3
 #define FABRIC_IDENTIFIER_CAPACITY 64u
 #define FABRIC_PATH_CAPACITY 1024u
 #define FABRIC_ERROR_CAPACITY 512u
@@ -47,7 +48,9 @@ typedef enum FabricResult {
   FABRIC_BUFFER_TOO_SMALL = 5,
   FABRIC_NOT_SUPPORTED = 6,
   FABRIC_BACKEND_ERROR = 7,
-  FABRIC_INTERNAL_ERROR = 8
+  FABRIC_INTERNAL_ERROR = 8,
+  /* The backend received a valid action but the machine declined it. */
+  FABRIC_INPUT_REJECTED = 9
 } FabricResult;
 
 typedef enum FabricCapability {
@@ -56,7 +59,8 @@ typedef enum FabricCapability {
   FABRIC_CAPABILITY_REELS = UINT64_C(1) << 2,
   FABRIC_CAPABILITY_CHARACTER_DISPLAYS = UINT64_C(1) << 3,
   FABRIC_CAPABILITY_SEGMENT_DISPLAYS = UINT64_C(1) << 4,
-  FABRIC_CAPABILITY_AUDIO = UINT64_C(1) << 5
+  FABRIC_CAPABILITY_AUDIO = UINT64_C(1) << 5,
+  FABRIC_CAPABILITY_COIN_INPUT = UINT64_C(1) << 6
 } FabricCapability;
 
 typedef struct FabricLaunchRequest {
@@ -100,13 +104,21 @@ typedef struct FabricCapabilities {
   uint64_t reserved[4];
 } FabricCapabilities;
 
+typedef enum FabricInputKind {
+  FABRIC_INPUT_DIGITAL = 0,
+  FABRIC_INPUT_COIN = 1
+} FabricInputKind;
+
 typedef struct FabricInput {
   uint32_t struct_size;
   uint32_t struct_version;
   char identifier[FABRIC_IDENTIFIER_CAPACITY];
   int32_t numerical_index;
+  uint32_t kind;
+  uint32_t coin_channel;
+  uint32_t coin_value;
   uint8_t active;
-  uint8_t reserved[7];
+  uint8_t reserved[3];
 } FabricInput;
 
 typedef struct FabricLamp {
