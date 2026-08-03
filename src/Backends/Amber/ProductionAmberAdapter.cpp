@@ -46,7 +46,7 @@ public:
   ProductionAmberInstance(std::unique_ptr<AmberDynamicLibrary> library, ProductionAmberApi api,
                  std::vector<std::string> program,
                  std::vector<std::string> sound,
-                 const FabricAmberConfigurationV1 *configuration,
+                 const FabricAmberConfigurationV2 *configuration,
                  std::string path, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
@@ -86,6 +86,8 @@ public:
   FabricResult reset() noexcept override {
     emit("AmberResetBegin", "result=pending");
     api_.Reset();
+    asserted_.clear();
+    asserted_coins_.clear();
     audio_frames_available_ = 0;
     audio_frame_fraction_ = 0;
     emit("AmberResetEnd", "result=success");
@@ -175,6 +177,34 @@ public:
     return shutdown_result_ = ok();
   }
   FabricResult submit_input(const FabricInput &input) noexcept override {
+    if (input.kind == FABRIC_INPUT_COIN) {
+      if (input.coin_channel > 5)
+        return invalid("Amber coin channel must be in the range 0..5");
+      if (input.coin_value > 12)
+        return invalid("Amber coin denomination must be in the range 0..12");
+      const uint16_t key = static_cast<uint16_t>(input.coin_channel << 8) |
+                           input.coin_value;
+      if (!input.active) {
+        asserted_coins_.erase(key);
+        return ok();
+      }
+      if (asserted_coins_.count(key))
+        return ok();
+      asserted_coins_.insert(key);
+      const bool accepted = api_.CoinIn(input.coin_channel, input.coin_value) != 0;
+      if (coin_input_diagnostic_count_ < 64) {
+        emit("AmberCoinInput", "channel=" + std::to_string(input.coin_channel) +
+                                   "; value=" + std::to_string(input.coin_value) +
+                                   "; result=" +
+                                   (accepted ? "accepted" : "rejected"));
+        ++coin_input_diagnostic_count_;
+      }
+      if (!accepted) {
+        error_ = "production Amber adapter: coin was rejected";
+        return FABRIC_INPUT_REJECTED;
+      }
+      return ok();
+    }
     if (input.numerical_index < 0 || input.numerical_index > 255)
       return invalid(
           "production Amber switch index must be in the range 0..255");
@@ -192,6 +222,7 @@ public:
     out.flags = FABRIC_CAPABILITY_DIGITAL_INPUT | FABRIC_CAPABILITY_LAMPS |
                 FABRIC_CAPABILITY_REELS | FABRIC_CAPABILITY_CHARACTER_DISPLAYS |
                 FABRIC_CAPABILITY_SEGMENT_DISPLAYS;
+    out.flags |= FABRIC_CAPABILITY_COIN_INPUT;
     if (api_.GetAudioFormat && api_.FillAudioFrames)
       out.flags |= FABRIC_CAPABILITY_AUDIO;
     return ok();
@@ -556,10 +587,17 @@ private:
                          std::to_string(config_.reels.apply_mask));
     }
     if (config_.flags & FABRIC_AMBER_CONFIGURE_COINS) {
-      if (!api_.SetCoinValue || !api_.SetCoinEnable) {
-        return unsupported(
-            phase, "missing export 'SetCoinValue' or 'SetCoinEnable'; DLL='" +
-                       path_ + "'");
+      api_.SetCommStyle(static_cast<uint8_t>(config_.coins.coin_communication_style));
+      api_.SetCommInvert(static_cast<uint8_t>(config_.coins.coin_communication_invert));
+      api_.SetCycles(config_.coins.coin_pulse_cycles);
+      api_.SetEDCEnable(static_cast<uint8_t>(config_.coins.coin_edc_enabled));
+      if (coin_configuration_diagnostic_count_ < 64) {
+        emit("AmberCoinMechanismConfigured",
+             "style=" + std::to_string(config_.coins.coin_communication_style) +
+                 "; invert=" + std::to_string(config_.coins.coin_communication_invert) +
+                 "; cycles=" + std::to_string(config_.coins.coin_pulse_cycles) +
+                 "; edc=" + std::to_string(config_.coins.coin_edc_enabled));
+        ++coin_configuration_diagnostic_count_;
       }
       for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
         if (config_.coins.channel_apply_mask & (1u << i)) {
@@ -577,23 +615,16 @@ private:
                                "missing export 'SetLockoutInvert'; DLL='" +
                                    path_ + "'");
           api_.SetLockoutInvert(index, static_cast<uint8_t>(c.lockout_invert));
-          emit("AmberConfigureCoin",
-               "index=" + std::to_string(i) +
-                   "; enabled=" + std::to_string(c.enabled) +
-                   "; value=" + std::to_string(c.value) +
-                   "; lockout_invert=" + std::to_string(c.lockout_invert) +
-                   "; result=success");
+          if (coin_configuration_diagnostic_count_ < 64) {
+            emit("AmberCoinChannelConfigured",
+                 "index=" + std::to_string(i) +
+                     "; enabled=" + std::to_string(c.enabled) +
+                     "; value=" + std::to_string(c.value) +
+                     "; lockoutInvert=" + std::to_string(c.lockout_invert) +
+                     "; result=success");
+            ++coin_configuration_diagnostic_count_;
+          }
         }
-      if (config_.coins.configuration_flags &
-          FABRIC_AMBER_COIN_CONFIG_APPLY_LOCKOUT_PORT) {
-        if (!api_.SetLockoutVal || config_.coins.lockout_port_base > 255 ||
-            config_.coins.lockout_port_value > 255)
-          return unsupported(
-              phase, "lockout port is unavailable or exceeds the 8-bit ABI");
-        api_.SetLockoutVal(
-            static_cast<uint8_t>(config_.coins.lockout_port_base),
-            static_cast<uint8_t>(config_.coins.lockout_port_value));
-      }
       if (config_.coins.route_apply_mask &&
           (!api_.SetEnable || !api_.SetCounterIn || !api_.SetCounterOut ||
            !api_.SetPortIndex || !api_.SetCoin || !api_.SetLevel ||
@@ -641,6 +672,7 @@ private:
       for (uint8_t i : asserted_)
         api_.TurnSwitchOff(i);
     asserted_.clear();
+    asserted_coins_.clear();
   }
   FabricResult ok() {
     error_.clear();
@@ -675,14 +707,17 @@ private:
   std::unique_ptr<AmberDynamicLibrary> library_;
   ProductionAmberApi api_{};
   std::vector<std::string> program_, sound_;
-  FabricAmberConfigurationV1 config_{};
+  FabricAmberConfigurationV2 config_{};
   std::set<uint8_t> asserted_;
+  std::set<uint16_t> asserted_coins_;
   std::string error_, path_;
   uint64_t remainder_ = 0, sequence_ = 0, native_tick_ = 0;
   uint32_t advance_trace_count_ = 0, audio_trace_count_ = 0,
            reset_trace_count_ = 0, snapshot_trace_count_ = 0,
            snapshot_diagnostic_count_ = 0,
            audio_generate_diagnostic_count_ = 0;
+  uint32_t coin_input_diagnostic_count_ = 0,
+           coin_configuration_diagnostic_count_ = 0;
   uint64_t total_audio_frames_ = 0;
   uint64_t audio_frames_available_ = 0, audio_frame_fraction_ = 0;
   uint32_t audio_sample_rate_ = 0, audio_channel_count_ = 0;
@@ -727,6 +762,14 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     REQ(GetOutputSnapshot);
     REQ(TurnSwitchOn);
     REQ(TurnSwitchOff);
+    REQ(CoinIn);
+    REQ(SetCommStyle);
+    REQ(SetCommInvert);
+    REQ(SetCycles);
+    REQ(SetEDCEnable);
+    REQ(SetCoinValue);
+    REQ(SetCoinEnable);
+    REQ(SetLockoutInvert);
 #undef REQ
 #define OPT(n) a.n = resolve<decltype(a.n)>(*library, #n)
     OPT(LoadSoundROM);
@@ -736,10 +779,6 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     OPT(SetOptoStart);
     OPT(SetOptoEnd);
     OPT(SetSteps);
-    OPT(SetCoinValue);
-    OPT(SetCoinEnable);
-    OPT(SetLockoutVal);
-    OPT(SetLockoutInvert);
     OPT(SetEnable);
     OPT(SetCounterIn);
     OPT(SetCounterOut);
@@ -773,7 +812,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     for (auto &v : s)
       sound.push_back(std::move(v.second));
     const auto *config = request.machine_configuration_size
-                             ? static_cast<const FabricAmberConfigurationV1 *>(
+                             ? static_cast<const FabricAmberConfigurationV2 *>(
                                    request.machine_configuration)
                              : nullptr;
     amber_trace::Write("selected for DLL='" +

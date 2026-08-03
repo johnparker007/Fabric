@@ -30,6 +30,10 @@ uint8_t coin_values[16];
 uint8_t percentage;
 uint32_t reset_count;
 uint8_t configuration_stage;
+uint32_t switch_on_calls, switch_off_calls, coin_in_calls, lockout_val_calls;
+uint8_t last_coin_channel, last_coin_value;
+uint8_t comm_style, comm_invert, edc_enabled;
+uint32_t pulse_cycles, mechanism_calls;
 } // namespace
 
 PRODUCTION_EXPORT float GetDLLVersion() { return 1.0f; }
@@ -66,8 +70,20 @@ PRODUCTION_EXPORT uint32_t LoadSoundROM(uint8_t *a, uint8_t *, uint8_t *,
                                     uint8_t *) {
   return initialised && a ? 1u : 0u;
 }
-PRODUCTION_EXPORT void TurnSwitchOn(uint8_t i) { switches[i] = 1; }
-PRODUCTION_EXPORT void TurnSwitchOff(uint8_t i) { switches[i] = 0; }
+PRODUCTION_EXPORT void TurnSwitchOn(uint8_t i) { switches[i] = 1; ++switch_on_calls; }
+PRODUCTION_EXPORT void TurnSwitchOff(uint8_t i) { switches[i] = 0; ++switch_off_calls; }
+#ifndef FAKE_AMBER_OMIT_COIN_IN
+PRODUCTION_EXPORT uint8_t CoinIn(uint8_t channel, uint8_t value) {
+  ++coin_in_calls; last_coin_channel = channel; last_coin_value = value;
+  return value == 11 ? 0 : 1;
+}
+#endif
+#ifndef FAKE_AMBER_OMIT_SET_COMM_STYLE
+PRODUCTION_EXPORT void SetCommStyle(uint8_t value) { comm_style = value; ++mechanism_calls; }
+#endif
+PRODUCTION_EXPORT void SetCommInvert(uint8_t value) { comm_invert = value; ++mechanism_calls; }
+PRODUCTION_EXPORT void SetCycles(uint32_t value) { pulse_cycles = value; ++mechanism_calls; }
+PRODUCTION_EXPORT void SetEDCEnable(uint8_t value) { edc_enabled = value; ++mechanism_calls; }
 PRODUCTION_EXPORT void SetOptoInvert(uint8_t, uint8_t) {}
 PRODUCTION_EXPORT void SetOptoStart(uint8_t, uint8_t) {}
 PRODUCTION_EXPORT void SetOptoEnd(uint8_t, uint8_t) {}
@@ -86,6 +102,7 @@ PRODUCTION_EXPORT void SetCoinValue(uint8_t i, uint8_t value) {
 }
 PRODUCTION_EXPORT void SetCoinEnable(uint8_t, uint8_t) {}
 PRODUCTION_EXPORT void SetLockoutInvert(uint8_t, uint8_t) {}
+PRODUCTION_EXPORT void SetLockoutVal(uint8_t, uint8_t) { ++lockout_val_calls; }
 PRODUCTION_EXPORT void SetPercent(uint8_t value) {
   percentage = value;
   if (configuration_stage == 2)
@@ -111,6 +128,13 @@ PRODUCTION_EXPORT uint32_t GetOutputSnapshot(void *buffer, uint32_t size) {
   s.MatrixLamps[2].Brightness = static_cast<float>(run_calls);
   s.MatrixLamps[3].Brightness = static_cast<float>(configuration_stage);
   s.MatrixLamps[4].Brightness = static_cast<float>(reset_count);
+  s.MatrixLamps[5].Brightness = static_cast<float>(coin_in_calls);
+  s.MatrixLamps[6].Brightness = static_cast<float>(last_coin_channel * 16 + last_coin_value);
+  s.MatrixLamps[7].Brightness = static_cast<float>(switch_on_calls + switch_off_calls);
+  s.MatrixLamps[8].Brightness = static_cast<float>(mechanism_calls);
+  s.MatrixLamps[9].Brightness = static_cast<float>(pulse_cycles);
+  s.MatrixLamps[10].Brightness = static_cast<float>(lockout_val_calls);
+  s.MatrixLamps[11].Brightness = static_cast<float>(comm_style + comm_invert + edc_enabled);
   s.ReelCount = PA2_NUM_REELS;
   s.Reels[0].Position = static_cast<int32_t>(cycles + reel_steps[0]);
   s.AlphaSegmentedDisplayCount = 1;

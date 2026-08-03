@@ -274,7 +274,7 @@ FabricResult FabricSessionShutdown(FabricMachineSession *session) {
 }
 FabricResult FabricSessionSubmitInput(FabricMachineSession *session,
                                       const FabricInput *input) {
-  if (!valid(input) ||
+  if (!valid(input) || input->kind > FABRIC_INPUT_COIN || input->active > 1 ||
       !terminated(input->identifier, sizeof(input->identifier)))
     return boundary_failure(session, FABRIC_INVALID_ARGUMENT,
                             "invalid Fabric input structure");
