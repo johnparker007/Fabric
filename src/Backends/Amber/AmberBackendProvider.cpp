@@ -142,13 +142,18 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
 class Provider final : public FabricBackendProvider {
 public:
   bool supports(const std::string &kind,
-                const std::string &) const noexcept override {
-    return kind == "amber";
+                const std::string &machine) const noexcept override {
+    return kind == "amber" && (machine == "jpm-system6" || machine == "barcrest-mpu5");
   }
   FabricResult create(const FabricLaunchRequest &request,
                       std::unique_ptr<FabricBackendInstance> &out,
                       std::string &error) noexcept override {
     try {
+      const std::string machine = request.machine_identifier;
+      if (machine != "jpm-system6" && machine != "barcrest-mpu5") {
+        error = "unsupported Amber machine identifier: " + machine;
+        return FABRIC_NOT_SUPPORTED;
+      }
       if (!std::filesystem::path(request.backend_path).is_absolute()) {
         error = "Amber backend path must be absolute";
         return FABRIC_INVALID_ARGUMENT;

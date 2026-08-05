@@ -3,12 +3,12 @@
 The production dependency flow is:
 
 ```text
-frontend -> FabricRuntime.dll -> production Amber adapter -> external Amber/JPM System 6 DLL
+frontend -> FabricRuntime.dll -> production Amber adapter -> external Amber JPM System 6 or Barcrest MPU5 DLL
 ```
 
 `include/fabric/fabric.h` defines the stable, versioned, exception-free C ABI. Runtime and session
 handles are opaque; destroy operations are deterministic; snapshot and audio buffers are caller-owned.
-The frontend selects `backend_kind = "amber"`, supplies a machine identifier, ROM resources, optional
+The frontend selects `backend_kind = "amber"`, supplies machine identifier `jpm-system6` or `barcrest-mpu5`, ROM resources, optional
 configuration, and the external DLL's exact absolute path.
 
 Internally, `FabricRuntime` owns backend providers and sessions own backend instances. Hidden C++
@@ -27,8 +27,8 @@ The following checks remain manual and must not be inferred from cross-platform 
 
 1. Perform clean Visual Studio 2022/x64 (or CMake x64) Debug and Release builds.
 2. Inspect `FabricRuntime.dll` exports and confirm only documented Fabric C exports are public.
-3. Launch with the real production Amber DLL and real ROMs.
-4. Verify lamps, reels, character/segment displays, audio, switches, reset, stop, and restart.
+3. Launch with the real production Amber System 6 and MPU5 DLLs and real ROMs.
+4. Verify platform-specific lamps, reels, character/segment displays, audio, switches, coin input, reset, stop, and restart.
 5. Verify missing-DLL and missing-export diagnostics.
 6. Verify unloading and partial-startup cleanup.
 7. Confirm no separate bridge DLL or emulator-core DLL is built.

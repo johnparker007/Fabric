@@ -1,55 +1,70 @@
 # Production Amber backend
 
-The `amber` backend loads only the exact absolute DLL path supplied by the frontend. It neither searches
-for a DLL nor substitutes a filename. The supplied library must implement the production flat/singleton
-Amber/JPM System 6 C ABI. Required exports are resolved eagerly; an error identifies both a missing
-symbol and the requested DLL. Optional exports enable sound and machine configuration features.
+The public Fabric backend identifier remains `amber`. Frontends select the Amber platform with the
+machine identifier:
 
-## Inputs and electronic coin mechanism
+- `jpm-system6` for JPM System 6.
+- `barcrest-mpu5` for Barcrest MPU5.
 
-Digital matrix, service, and door inputs use `TurnSwitchOn(index)` and
-`TurnSwitchOff(index)`. Coin actions are a different Fabric input kind and carry both a channel
-(0 through 5) and denomination code (0 through 12); the adapter calls `CoinIn(channel, value)` only
-on the inactive-to-active edge. Amber's source-confirmed parallel mechanism converts an accepted
-coin into its internally generated switch pulse 72 through 77. Fabric and frontends must not assert
-those switches to insert coins. A zero return from `CoinIn` becomes `FABRIC_INPUT_REJECTED`, which is
-a handled rejection rather than a transport or session failure.
+The `amber` backend loads only the exact absolute DLL path supplied by the frontend. It does not search
+for DLLs, substitute filenames, or infer the platform from the provider filename. Required exports are
+resolved eagerly; missing-export diagnostics include the symbol name and requested DLL path.
 
-The current Amber machine configuration is version 2. After the startup reset and every explicit
-reset, Fabric applies mechanism settings in this order: `SetCommStyle`, `SetCommInvert`, `SetCycles`,
-and `SetEDCEnable`; it then applies `SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert` for selected
-channels. Parallel communication style is raw value `0`, pulse cycles must be non-zero, and the known
-working setup uses style 0, no inversion, 800000 cycles, and EDC disabled. `SetCoinValue` remains part
-of channel configuration, but each `CoinIn` request still supplies its explicit denomination code.
+## Platform ABI differences
 
-`SetLockoutVal(index, data)` is a live output-port bitfield update made inside Amber when the emulated
-DUART output changes; it is not per-channel static configuration and Fabric never calls it during
-startup/reset configuration. Amber's separate `SetLockoutDrive` method is not exported by the current
-DLL. Fabric therefore does not attempt to configure distinct frontend #1/#2 lockout-drive assignments,
-and the coin channel's final public word remains reserved.
+Digital matrix, service, and door inputs use `TurnSwitchOn(index)` and `TurnSwitchOff(index)` on both
+platforms. Coin actions are a distinct Fabric input kind with a channel and denomination code. System 6
+calls `CoinIn(channel, value)`. MPU5 calls its three-argument ABI as `CoinIn(0, channel, value)`; the
+mechanism index is fixed to `0` because Fabric's public input ABI does not yet model multiple MPU5 coin
+mechanisms. A zero coin return becomes `FABRIC_INPUT_REJECTED`, not a broken session.
 
-The production adapter requires `CoinIn`, `SetCommStyle`, `SetCommInvert`, `SetCycles`, `SetEDCEnable`,
-`SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert`, in addition to its lifecycle, ROM, snapshot,
-and digital-input exports. No Amber DLL change is required.
+Reset is platform-specific. System 6 exports `void Reset(void)`. MPU5 exports `UINT8 Reset(void)`, and
+Fabric treats a zero MPU5 reset return as a backend failure so callers receive a clear startup or reset
+error.
 
-Private structure declarations for this external binary contract live in
-`src/Backends/Amber/ProductionAmberAbi.h`. They preserve four-byte packing and compile-time
-size/alignment checks but are not public Fabric headers or emulator source. The adapter owns the module,
-releases asserted inputs, shuts down partial or complete sessions, and unloads deterministically.
+Execution retains Fabric's one-millisecond model and bounded catch-up. System 6 advances with
+`Run(8000)` for each complete millisecond tick. MPU5 advances with `Run(16000)` for each complete
+millisecond tick. The native `Run` return remains observational.
 
-Startup calls `Initialise`, loads program and optional sound ROMs, then uses the normal reset path.
-Configuration is applied after that reset and every later reset. Execution accumulates nanoseconds into
-1 ms ticks, calls `Run(8000)` for each complete tick, performs at most three catch-up ticks, and retains
-only the sub-millisecond remainder. The native `Run` result is observational, not a progress count.
+## Outputs
 
-Snapshots are copied from the packed production structure into caller-owned Fabric lamps, reels,
-character displays, and segment displays. A character display carries one display-wide normalized
-brightness value: `0.0f` is off and `1.0f` is full brightness. Amber System 6 alpha-display
-brightness is copied unchanged into that field. Audio supports the production PCM16 mono/stereo formats.
-Each executed tick earns `sample_rate / 1000` frames using a fractional accumulator; reads are bounded
-by earned frames, partial reads retain unused entitlement, and reset/shutdown discard it. Diagnostics
-are bounded and use the launch callback, with `FABRIC_AMBER_TRACE=1` as an opt-in file/debugger fallback.
+Fabric validates and publishes platform-specific output counts instead of forcing MPU5 snapshots through
+System 6 assumptions:
 
-Automated tests use `FakeProductionAmber`, which includes the same private ABI declaration. No
-proprietary DLL or ROM is needed. Real-DLL validation remains a manual Windows integration check as
-listed in `fabric-architecture.md`.
+| Machine identifier | Matrix lamps | Reels | Alpha displays | Segment display cells |
+| --- | ---: | ---: | ---: | ---: |
+| `jpm-system6` | 512 | 8 | 1 | 16 |
+| `barcrest-mpu5` | 320 | 8 | 2 | 40 |
+
+Matrix lamps, general LEDs, and LED display cells remain distinct collections. MPU5 snapshots may expose
+40 `LedDisplays[]` cells without requiring the general `Leds[]` array to be populated. Segment display
+identifiers remain stable as `amber.seven-segment.N`; MPU5 publishes `amber.seven-segment.0` through
+`amber.seven-segment.39`.
+
+MPU5's native status LED is multi-state (`0` off, `1` green, `2` red, `3` yellow). Fabric's current
+public snapshot has no suitable multi-state cabinet LED output, so the adapter intentionally leaves this
+status LED unsupported rather than flattening it to an incorrect boolean.
+
+Private structure declarations for the binary snapshot contract live in
+`src/Backends/Amber/ProductionAmberAbi.h`. They preserve four-byte packing and compile-time size/alignment
+checks but are not public Fabric headers or emulator source.
+
+## Configuration and audio
+
+The existing `FabricAmberConfigurationV2` remains the current public Amber configuration shape. System 6
+continues applying reel, coin-mechanism, coin-route, and percentage settings after startup reset and
+after every explicit reset.
+
+For the initial MPU5 path, Fabric applies the source-compatible settings currently represented by the
+shared configuration when relevant to the MPU5 fake-provider coverage, notably the percentage switch.
+Broader MPU5 settings such as DIP switches, PIC/characteriser selection, SEC fitted, hopper type, reel
+jumpers/profiles, and multiple coin mechanisms are intentionally not exposed yet because they need a
+focused public ABI addition and real-ROM validation.
+
+PCM audio reuses the production PCM16 path where the provider exposes `GetAudioFormat` and
+`FillAudioFrames`. Each executed tick earns frames using a fractional accumulator, reads are bounded by
+earned frames, and reset/shutdown discard queued entitlement.
+
+Automated tests use fake System 6 and MPU5 provider DLLs with their real incompatible reset and coin
+function signatures. They do not require proprietary DLLs or ROMs. Real-DLL validation remains a manual
+integration check as listed in `fabric-architecture.md`.
