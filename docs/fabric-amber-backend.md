@@ -53,3 +53,33 @@ are bounded and use the launch callback, with `FABRIC_AMBER_TRACE=1` as an opt-i
 Automated tests use `FakeProductionAmber`, which includes the same private ABI declaration. No
 proprietary DLL or ROM is needed. Real-DLL validation remains a manual Windows integration check as
 listed in `fabric-architecture.md`.
+
+## Production platform selection
+
+The public backend identifier remains `amber`. Production loading supports the exact
+machine identifiers `jpm-system6` and `barcrest-mpu5`; the identifier, never the DLL
+filename, selects the native ABI adapter. The frontend must provide an absolute provider
+DLL path. Fabric neither searches for nor substitutes providers.
+
+System 6 executes `Run(8000)` for each executed millisecond and uses the native
+`void Reset()` and two-argument `CoinIn(channel, denomination)` contracts. MPU5
+executes `Run(16000)` and uses the separately typed `uint8_t Reset()` and
+three-argument `CoinIn(mechanism, channel, denomination)` contracts. MPU5 coin input
+is currently restricted to mechanism zero.
+
+The common packed version-2 snapshot remains 24,812 bytes. System 6 normalization
+publishes 512 matrix lamps, eight reels, one alpha display, and 16 segment cells from
+its general LED bank. MPU5 accepts its native 320 matrix lamps and eight reels, and
+publishes the reported (up to two) alpha displays and reported (up to 40) LED-display
+cells. The general LED bank and LED-display cells are intentionally distinct.
+
+MPU5's multicolour status LED and specialist test, lamp-failure, serial-hopper,
+timing, and DUART diagnostic helpers are deliberately not represented by Fabric's
+current output/configuration ABI. The current Amber configuration covers the shared
+reel, coin-channel, lockout, and percentage controls represented in
+`fabric_amber.h`; additional MPU5-only machine options require confirmed production
+export names and contracts before they can safely be enabled.
+
+Real provider validation remains a manual Windows integration step using the exact
+provider DLL and licensed ROM set. In particular, startup/configuration export names
+and reset success semantics must be confirmed against the production MPU5 build.

@@ -47,10 +47,10 @@ public:
                  std::vector<std::string> program,
                  std::vector<std::string> sound,
                  const FabricAmberConfigurationV2 *configuration,
-                 std::string path, FabricDiagnosticCallback diagnostic,
+                 std::string path, bool mpu5, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
-        sound_(std::move(sound)), path_(std::move(path)),
+        sound_(std::move(sound)), path_(std::move(path)), mpu5_(mpu5),
         diagnostic_(diagnostic), diagnostic_user_data_(diagnostic_user_data) {
     if (configuration)
       config_ = *configuration;
@@ -85,7 +85,12 @@ public:
   }
   FabricResult reset() noexcept override {
     emit("AmberResetBegin", "result=pending");
-    api_.Reset();
+    if (mpu5_) {
+      if (!api_.ResetMpu5())
+        return fail("Reset", "Amber return=0; machine='barcrest-mpu5'; DLL='" + path_ + "'");
+    } else {
+      api_.Reset();
+    }
     asserted_.clear();
     asserted_coins_.clear();
     audio_frames_available_ = 0;
@@ -104,7 +109,7 @@ public:
   }
   FabricResult advance(uint64_t ns) noexcept override {
     constexpr uint64_t tick_ns = UINT64_C(1000000);
-    constexpr uint32_t request = 8000;
+    const uint32_t request = mpu5_ ? 16000u : 8000u;
     constexpr uint64_t maximum_catch_up = 3;
     const uint64_t whole_ticks = ns / tick_ns;
     const uint64_t combined_remainder = remainder_ + ns % tick_ns;
@@ -191,7 +196,11 @@ public:
       if (asserted_coins_.count(key))
         return ok();
       asserted_coins_.insert(key);
-      const bool accepted = api_.CoinIn(input.coin_channel, input.coin_value) != 0;
+      const bool accepted = mpu5_
+                                ? api_.CoinInMpu5(0, input.coin_channel,
+                                                  input.coin_value) != 0
+                                : api_.CoinIn(input.coin_channel,
+                                              input.coin_value) != 0;
       if (coin_input_diagnostic_count_ < 64) {
         emit("AmberCoinInput", "channel=" + std::to_string(input.coin_channel) +
                                    "; value=" + std::to_string(input.coin_value) +
@@ -243,22 +252,27 @@ public:
                       "; embedded size=" + std::to_string(source.SizeBytes) +
                       "; version=" + std::to_string(source.Version) +
                       "; DLL='" + path_ + "'");
-    if (source.MatrixLampCount < 512 ||
-        source.MatrixLampCount > PA2_MAX_MATRIX_LAMPS || source.ReelCount < 8 ||
-        source.ReelCount > PA2_NUM_REELS ||
-        source.AlphaSegmentedDisplayCount < 1 ||
-        source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS ||
-        source.LedCount < 256 || source.LedCount > PA2_MAX_LEDS)
+    const bool invalid_counts = mpu5_
+        ? (source.MatrixLampCount != 320 || source.ReelCount != 8 ||
+           source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS ||
+           source.LedDisplayCount > PA2_NUM_LED_DISPLAYS)
+        : (source.MatrixLampCount < 512 ||
+           source.MatrixLampCount > PA2_MAX_MATRIX_LAMPS || source.ReelCount < 8 ||
+           source.ReelCount > PA2_NUM_REELS ||
+           source.AlphaSegmentedDisplayCount < 1 ||
+           source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS ||
+           source.LedCount < 256 || source.LedCount > PA2_MAX_LEDS);
+    if (invalid_counts)
       return fail("GetOutputSnapshot",
                   "invalid production counts: matrix lamps=" +
                       std::to_string(source.MatrixLampCount) + "; reels=" +
                       std::to_string(source.ReelCount) + "; alpha displays=" +
                       std::to_string(source.AlphaSegmentedDisplayCount) +
                       "; LEDs=" + std::to_string(source.LedCount));
-    out.lamp_count = 512;
-    out.reel_count = 8;
-    out.character_display_count = 1;
-    out.segment_display_count = 16;
+    out.lamp_count = source.MatrixLampCount;
+    out.reel_count = source.ReelCount;
+    out.character_display_count = mpu5_ ? source.AlphaSegmentedDisplayCount : 1;
+    out.segment_display_count = mpu5_ ? source.LedDisplayCount : 16;
     if (out.lamp_capacity < out.lamp_count ||
         out.reel_capacity < out.reel_count ||
         out.character_display_capacity < out.character_display_count ||
@@ -280,8 +294,8 @@ public:
                         std::to_string(i) + "; value=" +
                         std::to_string(brightness));
     }
-    for (uint32_t i = 0; i < 256; ++i)
-      if (!std::isfinite(source.Leds[i].Brightness))
+    for (uint32_t i = 0; i < (mpu5_ ? source.LedDisplayCount : 256u); ++i)
+      if (!std::isfinite(mpu5_ ? source.LedDisplays[i].Brightness : source.Leds[i].Brightness))
         return fail("GetOutputSnapshot",
                     "LED brightness is non-finite; index=" + std::to_string(i));
     for (uint32_t i = 0; i < out.lamp_count; ++i) {
@@ -333,11 +347,15 @@ public:
                     "amber.seven-segment.%u", i);
       d.digit_count = 1;
       d.digit_capacity = FABRIC_SEGMENT_DIGIT_CAPACITY;
-      uint64_t mask = 0;
-      for (uint32_t segment = 0; segment < 8; ++segment)
-        mask = (mask << 1) |
-               (source.Leds[i * 16 + segment].OnOff ? UINT64_C(1) : 0);
-      d.segment_masks[0] = mask;
+      if (mpu5_) {
+        d.segment_masks[0] = source.LedDisplays[i].OnOff;
+      } else {
+        uint64_t mask = 0;
+        for (uint32_t segment = 0; segment < 8; ++segment)
+          mask = (mask << 1) |
+                 (source.Leds[i * 16 + segment].OnOff ? UINT64_C(1) : 0);
+        d.segment_masks[0] = mask;
+      }
     }
     if (snapshot_trace_count_ < 8) {
       uint32_t active = 0, changed_lamps = 0, changed_reels = 0,
@@ -587,6 +605,9 @@ private:
                          std::to_string(config_.reels.apply_mask));
     }
     if (config_.flags & FABRIC_AMBER_CONFIGURE_COINS) {
+      if (!api_.SetCommStyle || !api_.SetCommInvert || !api_.SetCycles ||
+          !api_.SetEDCEnable || !api_.SetCoinEnable || !api_.SetCoinValue)
+        return unsupported(phase, "one or more coin configuration exports are missing; DLL='" + path_ + "'");
       api_.SetCommStyle(static_cast<uint8_t>(config_.coins.coin_communication_style));
       api_.SetCommInvert(static_cast<uint8_t>(config_.coins.coin_communication_invert));
       api_.SetCycles(config_.coins.coin_pulse_cycles);
@@ -725,6 +746,7 @@ private:
   std::array<int32_t, 8> previous_reels_{};
   std::array<uint16_t, 16> previous_alpha_{};
   bool started_ = false, stopped_ = false, has_previous_snapshot_ = false;
+  bool mpu5_ = false;
   FabricResult shutdown_result_ = FABRIC_OK;
   FabricDiagnosticCallback diagnostic_ = nullptr;
   void *diagnostic_user_data_ = nullptr;
@@ -750,27 +772,31 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
                           std::string &error) noexcept {
   try {
     ProductionAmberApi a{};
+    const bool mpu5 = std::strcmp(request.machine_identifier,
+                                  "barcrest-mpu5") == 0;
 #define REQ(n)                                                                 \
   if (!required(*library, a.n, #n, request.backend_path, error))               \
   return FABRIC_NOT_SUPPORTED
     REQ(Initialise);
     REQ(Shutdown);
-    REQ(Reset);
     REQ(Run);
     REQ(LoadROM);
     REQ(GetOutputSnapshotSize);
     REQ(GetOutputSnapshot);
     REQ(TurnSwitchOn);
     REQ(TurnSwitchOff);
-    REQ(CoinIn);
-    REQ(SetCommStyle);
-    REQ(SetCommInvert);
-    REQ(SetCycles);
-    REQ(SetEDCEnable);
-    REQ(SetCoinValue);
-    REQ(SetCoinEnable);
-    REQ(SetLockoutInvert);
 #undef REQ
+    if (mpu5) {
+      if (!required(*library, a.ResetMpu5, "Reset", request.backend_path, error) ||
+          !required(*library, a.CoinInMpu5, "CoinIn", request.backend_path, error))
+        return FABRIC_NOT_SUPPORTED;
+    } else {
+#define SYSREQ(n) if (!required(*library, a.n, #n, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
+      SYSREQ(Reset); SYSREQ(CoinIn); SYSREQ(SetCommStyle); SYSREQ(SetCommInvert);
+      SYSREQ(SetCycles); SYSREQ(SetEDCEnable); SYSREQ(SetCoinValue);
+      SYSREQ(SetCoinEnable); SYSREQ(SetLockoutInvert);
+#undef SYSREQ
+    }
 #define OPT(n) a.n = resolve<decltype(a.n)>(*library, #n)
     OPT(LoadSoundROM);
     OPT(GetAudioFormat);
@@ -779,6 +805,13 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     OPT(SetOptoStart);
     OPT(SetOptoEnd);
     OPT(SetSteps);
+    OPT(SetCommStyle);
+    OPT(SetCommInvert);
+    OPT(SetCycles);
+    OPT(SetEDCEnable);
+    OPT(SetCoinValue);
+    OPT(SetCoinEnable);
+    OPT(SetLockoutInvert);
     OPT(SetEnable);
     OPT(SetCounterIn);
     OPT(SetCounterOut);
@@ -830,6 +863,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     out = std::make_unique<ProductionAmberInstance>(std::move(library), a,
                                            std::move(program), std::move(sound),
                                            config, request.backend_path,
+                                           mpu5,
                                            request.diagnostic_callback,
                                            request.diagnostic_user_data);
     return FABRIC_OK;

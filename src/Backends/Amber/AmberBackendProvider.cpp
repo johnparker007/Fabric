@@ -149,6 +149,12 @@ public:
                       std::unique_ptr<FabricBackendInstance> &out,
                       std::string &error) noexcept override {
     try {
+      const std::string machine = request.machine_identifier;
+      if (machine != "jpm-system6" && machine != "barcrest-mpu5") {
+        error = "Amber backend 'amber' does not support machine identifier '" +
+                machine + "'; provider DLL='" + request.backend_path + "'";
+        return FABRIC_NOT_SUPPORTED;
+      }
       if (!std::filesystem::path(request.backend_path).is_absolute()) {
         error = "Amber backend path must be absolute";
         return FABRIC_INVALID_ARGUMENT;

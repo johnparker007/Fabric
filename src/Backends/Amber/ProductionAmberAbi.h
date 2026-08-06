@@ -204,6 +204,7 @@ struct ProductionAmberApi {
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *Initialise)() = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *Shutdown)() = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *Reset)() = nullptr;
+  uint8_t (FABRIC_PRODUCTION_AMBER_CALL *ResetMpu5)() = nullptr;
   int32_t (FABRIC_PRODUCTION_AMBER_CALL *Run)(uint32_t) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *LoadROM)(uint8_t *, uint8_t *, uint8_t *, uint8_t *) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *GetOutputSnapshotSize)() = nullptr;
@@ -211,6 +212,7 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *TurnSwitchOn)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *TurnSwitchOff)(uint8_t) = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *CoinIn)(uint8_t, uint8_t) = nullptr;
+  uint8_t (FABRIC_PRODUCTION_AMBER_CALL *CoinInMpu5)(uint8_t, uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCommStyle)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCommInvert)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCycles)(uint32_t) = nullptr;
