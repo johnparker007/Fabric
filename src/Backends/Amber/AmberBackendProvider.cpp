@@ -144,15 +144,19 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
   if (c.magic != FABRIC_AMBER_MPU5_CONFIGURATION_MAGIC ||
       c.struct_size != sizeof(c) ||
       c.version != FABRIC_AMBER_MPU5_CONFIGURATION_VERSION_1 ||
-      (c.flags & ~UINT32_C(7)))
+      (c.flags & ~(FABRIC_AMBER_MPU5_CONFIGURE_REELS |
+                   FABRIC_AMBER_MPU5_CONFIGURE_COINS |
+                   FABRIC_AMBER_MPU5_CONFIGURE_OPTIONS)))
     return malformed("is not a valid FabricAmberMpu5ConfigurationV1");
-  for (uint32_t value : c.reserved)
-    if (value)
-      return malformed("has nonzero reserved fields in FabricAmberMpu5ConfigurationV1");
+  if (c.reels.struct_size != sizeof(c.reels) ||
+      c.reels.version != FABRIC_AMBER_MPU5_REEL_CONFIGURATION_VERSION_1 ||
+      c.coins.struct_size != sizeof(c.coins) ||
+      c.coins.version != FABRIC_AMBER_MPU5_COIN_CONFIGURATION_VERSION_1 ||
+      c.options.struct_size != sizeof(c.options) ||
+      c.options.version != FABRIC_AMBER_MPU5_OPTIONS_VERSION_1)
+    return malformed("has an invalid MPU5 nested section identity");
   if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_REELS) &&
-      (c.reels.struct_size != sizeof(c.reels) ||
-       c.reels.version != FABRIC_AMBER_MPU5_REEL_CONFIGURATION_VERSION_1 ||
-       c.reels.reel_count > FABRIC_AMBER_MAX_REELS ||
+      (c.reels.reel_count > FABRIC_AMBER_MAX_REELS ||
        (c.reels.apply_mask & ~UINT32_C(0xff)) ||
        (c.reels.apply_mask &
         ~((UINT32_C(1) << c.reels.reel_count) - UINT32_C(1)))))
@@ -161,28 +165,51 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
     if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_REELS) &&
         (c.reels.apply_mask & (UINT32_C(1) << i))) {
       const auto &v = c.reels.reels[i];
-      if (v.reel_index != i || v.steps > 255 ||
+      if (v.reel_index != i || !v.steps || v.steps > 255 ||
           v.opto_start > 255 || v.opto_end > 255 || v.opto_invert > 1)
         return malformed("has an invalid MPU5 reel entry");
     }
   if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_COINS) &&
-      (c.coins.struct_size != sizeof(c.coins) ||
-       c.coins.version != FABRIC_AMBER_MPU5_COIN_CONFIGURATION_VERSION_1 ||
-       c.coins.channel_count > FABRIC_AMBER_MAX_COIN_CHANNELS ||
+      (c.coins.channel_count > FABRIC_AMBER_MAX_COIN_CHANNELS ||
        (c.coins.apply_mask & ~UINT32_C(0x3f)) ||
        (c.coins.apply_mask &
-        ~((UINT32_C(1) << c.coins.channel_count) - UINT32_C(1)))))
+        ~((UINT32_C(1) << c.coins.channel_count) - UINT32_C(1))) ||
+       c.coins.communication_style > 3 || c.coins.communication_invert > 1 ||
+       !c.coins.pulse_cycles || c.coins.edc_enabled > 1))
     return malformed("has an invalid MPU5 coin section");
   for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
     if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_COINS) &&
         (c.coins.apply_mask & (UINT32_C(1) << i))) {
       const auto &v = c.coins.channels[i];
-      if (v.channel_index != i || v.enabled > 1 || v.value > 12 ||
+      if (v.channel_index != i || v.enabled > 1 || v.value > 255 ||
           v.lockout_invert > 1 || v.reserved)
         return malformed("has an invalid MPU5 coin channel");
     }
-  if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_PERCENTAGE) && c.percentage > 15)
-    return malformed("has an MPU5 percentage outside 0..15");
+  constexpr uint32_t option_mask =
+      FABRIC_AMBER_MPU5_OPTION_DIPS | FABRIC_AMBER_MPU5_OPTION_STAKE |
+      FABRIC_AMBER_MPU5_OPTION_PRIZE | FABRIC_AMBER_MPU5_OPTION_PERCENTAGE |
+      FABRIC_AMBER_MPU5_OPTION_CHARACTERISER_ADDRESS |
+      FABRIC_AMBER_MPU5_OPTION_PIC_MODE | FABRIC_AMBER_MPU5_OPTION_SEC_FITTED |
+      FABRIC_AMBER_MPU5_OPTION_HOPPER_TYPE |
+      FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_0 |
+      FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_1;
+  const auto &o = c.options;
+  if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_OPTIONS) &&
+      ((o.apply_mask & ~option_mask) || (o.dip_switch_bits & ~UINT32_C(0xffff)) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_STAKE) && o.stake > 255) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_PRIZE) && o.prize > 255) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_PERCENTAGE) && o.percentage > 15) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_PIC_MODE) &&
+        (o.pic_mode < 1 || o.pic_mode > 3)) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_SEC_FITTED) && o.sec_fitted > 1) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_HOPPER_TYPE) && o.hopper_type > 3) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_0) &&
+        o.reel_jumper_profile_0 > 2) ||
+       ((o.apply_mask & FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_1) &&
+        o.reel_jumper_profile_1 > 2)))
+    return malformed("has an invalid MPU5 options section");
+  if (o.reserved[0] || o.reserved[1])
+    return malformed("has nonzero reserved fields in FabricAmberMpu5OptionsV1");
   return FABRIC_OK;
 }
 

@@ -19,7 +19,7 @@ a handled rejection rather than a transport or session failure.
 
 Configuration is selected strictly from `request.machine_identifier`. `jpm-system6`
 accepts only the 648-byte `FabricAmberSystem6ConfigurationV2`; `barcrest-mpu5`
-accepts only the 420-byte `FabricAmberMpu5ConfigurationV1` (magic `0x354D4146`,
+accepts only the 404-byte `FabricAmberMpu5ConfigurationV1` (magic `0x354D4146`,
 version 1). A launch with no configuration is valid for either machine. Fabric does
 not inspect size or magic to select a format and does not fall back between formats.
 
@@ -29,26 +29,35 @@ and percentage contract. Its production configuration sequence remains
 `SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert` calls. `SetLockoutVal` is a
 live emulated output update and is not startup configuration.
 
-MPU5 version 1 supports only settings backed by confirmed compatible exports:
+MPU5 version 1 contains reel, electronic-coin, and options sections. Confirmed
+settings and native exports are:
 
-* selected reel steps (`SetSteps`) and opto start/end/inversion (`SetOptoStart`,
-  `SetOptoEnd`, and `SetOptoInvert`);
-* selected electronic coin-channel enable, denomination, and lockout inversion
-  (`SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert`); and
-* percentage in the range 0 through 15 (`SetPercent`).
+* reel steps and opto start/end/inversion: `SetSteps`, `SetOptoStart`,
+  `SetOptoEnd`, and `SetOptoInvert` (reels 0..7, steps 1..255);
+* reel-controller jumper profiles 0..2: `SetReelJumperProfile`;
+* coin communication style 0..3, inversion, nonzero pulse cycles, and EDC:
+  `SetCommStyle`, `SetCommInvert`, `SetCycles`, and `SetEDCEnable`;
+* selected coin-channel enable, full uint8 denomination, and lockout inversion:
+  `SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert`;
+* 16 DIP states: `SetDIP`; stake and prize selectors: `SetStake` and `SetPrize`;
+* percentage 0..15: `SetPercent`; explicit characteriser override (including zero):
+  `SetCharacteriserAddress`; physical PIC mode 1..3: `SetPICMode`;
+* SEC fitted: `SetSECFitted`; and global hopper type 0..3: `SetHopperType`.
 
-Fabric resolves only the setters requested by the MPU5 flags. Consequently a
-percentage-only configuration does not require reel or coin setters. A missing setter
-for a requested section fails with the export name, machine identifier, and provider
-path. The lifecycle order is `Initialise`, program ROM load, optional sound ROM load,
-`Reset`, then configuration. The same configuration is reapplied after every explicit
-reset because reset may clear native settings.
+Fabric resolves only exports requested by configuration flags and option bits. A
+percentage-only configuration therefore requires only `SetPercent`. Missing requested
+setters identify the export, machine, provider path, and configuration stage.
 
-Reel enable and jumper/profile selection are omitted because no compatible setter is
-confirmed. Stake, prize, DIP switches, PIC mode/selection, characteriser address, SEC
-fitted, and hopper type are deferred pending confirmation of exact production export
-names, signatures, value ranges, and reset semantics with a real DLL. They are not
-reserved semantic placeholders in the public structure.
+MPU5 startup uses `Initialise`, program ROM load, optional sound ROM load, all requested
+configuration setters, then one `Reset`. Every explicit Fabric reset likewise reapplies
+all requested settings before native `Reset`, ensuring that PIC, DIP, stake, prize,
+percentage, SEC, jumper, and requested-hardware state is consumed by reset. System 6
+retains its established reset-then-configuration order.
+
+There is no general MPU5 reel-enable setter, so no reel-enable field is exposed.
+`SetLegacyPICMode` is not exposed alongside the explicit `SetPICMode` selection.
+Specialist service controls and the detailed per-hopper edit-page configuration remain
+deferred; the global hopper type is supported now.
 
 Private structure declarations for this external binary contract live in
 `src/Backends/Amber/ProductionAmberAbi.h`. They preserve four-byte packing and compile-time

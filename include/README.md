@@ -11,6 +11,6 @@ backend rejection; bindings must not treat it as session failure.
 
 Amber launch configuration is selected by machine identifier, not by inspecting the
 blob. `jpm-system6` accepts `FabricAmberSystem6ConfigurationV2` (648 bytes), while
-`barcrest-mpu5` accepts `FabricAmberMpu5ConfigurationV1` (420 bytes). Either machine
+`barcrest-mpu5` accepts `FabricAmberMpu5ConfigurationV1` (404 bytes). Either machine
 may be launched without a configuration blob; the two configuration types are not
 interchangeable.

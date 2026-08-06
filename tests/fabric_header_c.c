@@ -37,12 +37,15 @@ _Static_assert(sizeof(FabricAmberMpu5ReelConfigurationV1) == 176,
                "MPU5 reel configuration layout");
 _Static_assert(sizeof(FabricAmberMpu5CoinChannelConfigV1) == 20,
                "MPU5 coin entry layout");
-_Static_assert(sizeof(FabricAmberMpu5CoinConfigurationV1) == 136,
+_Static_assert(sizeof(FabricAmberMpu5CoinConfigurationV1) == 152,
                "MPU5 coin configuration layout");
-_Static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 420,
+_Static_assert(sizeof(FabricAmberMpu5OptionsV1) == 60,
+               "MPU5 options layout");
+_Static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 404,
                "MPU5 machine configuration layout");
-_Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, percentage) == 328,
-               "MPU5 percentage offset");
+_Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, reels) == 16, "MPU5 reels offset");
+_Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, coins) == 192, "MPU5 coins offset");
+_Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, options) == 344, "MPU5 options offset");
 int main(void) {
   FabricRuntime *runtime = 0;
   if (FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) != FABRIC_OK)

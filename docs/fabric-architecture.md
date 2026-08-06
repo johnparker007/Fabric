@@ -44,6 +44,7 @@ calls and output-shape validation.
 Amber configuration is likewise dispatched by machine identifier. System 6 consumes
 only `FabricAmberSystem6ConfigurationV2`; MPU5 consumes only
 `FabricAmberMpu5ConfigurationV1`; either accepts no blob. MPU5 configuration setters
-are resolved per requested section and applied after startup reset and every explicit
-reset. The initial MPU5 contract deliberately excludes unconfirmed machine-option and
-diagnostic exports.
+are resolved per requested section and applied before the startup reset and before every explicit
+reset. The MPU5 contract includes the source-confirmed general machine options; only
+specialist service controls and detailed per-hopper edit-page configuration remain
+outside the current public configuration.

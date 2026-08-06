@@ -49,9 +49,22 @@ typedef struct FabricAmberSystem6ConfigurationV2 {
 #define FABRIC_AMBER_MPU5_CONFIGURATION_VERSION_1 1u
 #define FABRIC_AMBER_MPU5_REEL_CONFIGURATION_VERSION_1 1u
 #define FABRIC_AMBER_MPU5_COIN_CONFIGURATION_VERSION_1 1u
+#define FABRIC_AMBER_MPU5_OPTIONS_VERSION_1 1u
+#define FABRIC_AMBER_MPU5_REEL_JUMPER_CONTROLLER_COUNT 2u
+#define FABRIC_AMBER_MPU5_DIP_COUNT 16u
 #define FABRIC_AMBER_MPU5_CONFIGURE_REELS UINT32_C(1)
 #define FABRIC_AMBER_MPU5_CONFIGURE_COINS UINT32_C(2)
-#define FABRIC_AMBER_MPU5_CONFIGURE_PERCENTAGE UINT32_C(4)
+#define FABRIC_AMBER_MPU5_CONFIGURE_OPTIONS UINT32_C(4)
+#define FABRIC_AMBER_MPU5_OPTION_DIPS UINT32_C(1)
+#define FABRIC_AMBER_MPU5_OPTION_STAKE UINT32_C(2)
+#define FABRIC_AMBER_MPU5_OPTION_PRIZE UINT32_C(4)
+#define FABRIC_AMBER_MPU5_OPTION_PERCENTAGE UINT32_C(8)
+#define FABRIC_AMBER_MPU5_OPTION_CHARACTERISER_ADDRESS UINT32_C(16)
+#define FABRIC_AMBER_MPU5_OPTION_PIC_MODE UINT32_C(32)
+#define FABRIC_AMBER_MPU5_OPTION_SEC_FITTED UINT32_C(64)
+#define FABRIC_AMBER_MPU5_OPTION_HOPPER_TYPE UINT32_C(128)
+#define FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_0 UINT32_C(256)
+#define FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_1 UINT32_C(512)
 
 typedef struct FabricAmberMpu5ReelConfigV1 {
   uint32_t reel_index, steps, opto_start, opto_end, opto_invert;
@@ -65,13 +78,20 @@ typedef struct FabricAmberMpu5CoinChannelConfigV1 {
 } FabricAmberMpu5CoinChannelConfigV1;
 typedef struct FabricAmberMpu5CoinConfigurationV1 {
   uint32_t struct_size, version, channel_count, apply_mask;
+  uint32_t communication_style, communication_invert, pulse_cycles, edc_enabled;
   FabricAmberMpu5CoinChannelConfigV1 channels[FABRIC_AMBER_MAX_COIN_CHANNELS];
 } FabricAmberMpu5CoinConfigurationV1;
+typedef struct FabricAmberMpu5OptionsV1 {
+  uint32_t struct_size, version, apply_mask;
+  uint32_t dip_switch_bits, stake, prize, percentage, characteriser_address;
+  uint32_t pic_mode, sec_fitted, hopper_type;
+  uint32_t reel_jumper_profile_0, reel_jumper_profile_1;
+  uint32_t reserved[2];
+} FabricAmberMpu5OptionsV1;
 typedef struct FabricAmberMpu5ConfigurationV1 {
   uint32_t magic, struct_size, version, flags;
   FabricAmberMpu5ReelConfigurationV1 reels;
   FabricAmberMpu5CoinConfigurationV1 coins;
-  uint32_t percentage;
-  uint32_t reserved[22];
+  FabricAmberMpu5OptionsV1 options;
 } FabricAmberMpu5ConfigurationV1;
 #endif

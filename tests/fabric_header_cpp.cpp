@@ -14,9 +14,13 @@ static_assert(sizeof(FabricAmberMpu5ReelConfigurationV1) == 176,
               "MPU5 reel configuration layout");
 static_assert(sizeof(FabricAmberMpu5CoinChannelConfigV1) == 20,
               "MPU5 coin entry layout");
-static_assert(sizeof(FabricAmberMpu5CoinConfigurationV1) == 136,
+static_assert(sizeof(FabricAmberMpu5CoinConfigurationV1) == 152,
               "MPU5 coin configuration layout");
-static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 420,
+static_assert(sizeof(FabricAmberMpu5OptionsV1) == 60, "MPU5 options layout");
+static_assert(offsetof(FabricAmberMpu5ConfigurationV1, reels) == 16, "MPU5 reels offset");
+static_assert(offsetof(FabricAmberMpu5ConfigurationV1, coins) == 192, "MPU5 coins offset");
+static_assert(offsetof(FabricAmberMpu5ConfigurationV1, options) == 344, "MPU5 options offset");
+static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 404,
               "MPU5 configuration layout");
 int main() {
   FabricRuntime *runtime = nullptr;

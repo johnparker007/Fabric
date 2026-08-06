@@ -235,6 +235,14 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *SetLevel)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetFullLevel)(uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetPercent)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetDIP)(uint8_t, uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetStake)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetPrize)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetCharacteriserAddress)(uint32_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetPICMode)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetSECFitted)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetHopperType)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetReelJumperProfile)(uint8_t, uint8_t) = nullptr;
 };
 #undef FABRIC_PRODUCTION_AMBER_CALL
 
