@@ -8,3 +8,9 @@ ABI v3 consumers (including managed bindings) must declare `FabricInput` as 88 b
 and 82, followed by five reserved bytes. Digital inputs use kind 0 and the numerical index. Coin
 inputs use kind 1 and the explicit channel/value fields. `FABRIC_INPUT_REJECTED` (9) is a handled
 backend rejection; bindings must not treat it as session failure.
+
+Amber launch configuration is selected by machine identifier, not by inspecting the
+blob. `jpm-system6` accepts `FabricAmberSystem6ConfigurationV2` (648 bytes), while
+`barcrest-mpu5` accepts `FabricAmberMpu5ConfigurationV1` (420 bytes). Either machine
+may be launched without a configuration blob; the two configuration types are not
+interchangeable.

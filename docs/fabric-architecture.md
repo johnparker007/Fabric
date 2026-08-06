@@ -40,3 +40,10 @@ ABI (8,000 cycles/ms), while `barcrest-mpu5` selects the separately typed MPU5 A
 (16,000 cycles/ms). Provider paths are explicit and absolute; filenames do not affect
 selection. Snapshot and audio normalization are shared after platform-specific ABI
 calls and output-shape validation.
+
+Amber configuration is likewise dispatched by machine identifier. System 6 consumes
+only `FabricAmberSystem6ConfigurationV2`; MPU5 consumes only
+`FabricAmberMpu5ConfigurationV1`; either accepts no blob. MPU5 configuration setters
+are resolved per requested section and applied after startup reset and every explicit
+reset. The initial MPU5 contract deliberately excludes unconfirmed machine-option and
+diagnostic exports.

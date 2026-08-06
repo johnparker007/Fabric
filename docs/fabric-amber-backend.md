@@ -15,22 +15,40 @@ coin into its internally generated switch pulse 72 through 77. Fabric and fronte
 those switches to insert coins. A zero return from `CoinIn` becomes `FABRIC_INPUT_REJECTED`, which is
 a handled rejection rather than a transport or session failure.
 
-The current Amber machine configuration is version 2. After the startup reset and every explicit
-reset, Fabric applies mechanism settings in this order: `SetCommStyle`, `SetCommInvert`, `SetCycles`,
-and `SetEDCEnable`; it then applies `SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert` for selected
-channels. Parallel communication style is raw value `0`, pulse cycles must be non-zero, and the known
-working setup uses style 0, no inversion, 800000 cycles, and EDC disabled. `SetCoinValue` remains part
-of channel configuration, but each `CoinIn` request still supplies its explicit denomination code.
+## Machine-specific configuration
 
-`SetLockoutVal(index, data)` is a live output-port bitfield update made inside Amber when the emulated
-DUART output changes; it is not per-channel static configuration and Fabric never calls it during
-startup/reset configuration. Amber's separate `SetLockoutDrive` method is not exported by the current
-DLL. Fabric therefore does not attempt to configure distinct frontend #1/#2 lockout-drive assignments,
-and the coin channel's final public word remains reserved.
+Configuration is selected strictly from `request.machine_identifier`. `jpm-system6`
+accepts only the 648-byte `FabricAmberSystem6ConfigurationV2`; `barcrest-mpu5`
+accepts only the 420-byte `FabricAmberMpu5ConfigurationV1` (magic `0x354D4146`,
+version 1). A launch with no configuration is valid for either machine. Fabric does
+not inspect size or magic to select a format and does not fall back between formats.
 
-The production adapter requires `CoinIn`, `SetCommStyle`, `SetCommInvert`, `SetCycles`, `SetEDCEnable`,
-`SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert`, in addition to its lifecycle, ROM, snapshot,
-and digital-input exports. No Amber DLL change is required.
+System 6 retains its version-2 reel, electronic-mechanism, coin-channel, coin-route,
+and percentage contract. Its production configuration sequence remains
+`SetCommStyle`, `SetCommInvert`, `SetCycles`, `SetEDCEnable`, followed by selected
+`SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert` calls. `SetLockoutVal` is a
+live emulated output update and is not startup configuration.
+
+MPU5 version 1 supports only settings backed by confirmed compatible exports:
+
+* selected reel steps (`SetSteps`) and opto start/end/inversion (`SetOptoStart`,
+  `SetOptoEnd`, and `SetOptoInvert`);
+* selected electronic coin-channel enable, denomination, and lockout inversion
+  (`SetCoinEnable`, `SetCoinValue`, and `SetLockoutInvert`); and
+* percentage in the range 0 through 15 (`SetPercent`).
+
+Fabric resolves only the setters requested by the MPU5 flags. Consequently a
+percentage-only configuration does not require reel or coin setters. A missing setter
+for a requested section fails with the export name, machine identifier, and provider
+path. The lifecycle order is `Initialise`, program ROM load, optional sound ROM load,
+`Reset`, then configuration. The same configuration is reapplied after every explicit
+reset because reset may clear native settings.
+
+Reel enable and jumper/profile selection are omitted because no compatible setter is
+confirmed. Stake, prize, DIP switches, PIC mode/selection, characteriser address, SEC
+fitted, and hopper type are deferred pending confirmation of exact production export
+names, signatures, value ranges, and reset semantics with a real DLL. They are not
+reserved semantic placeholders in the public structure.
 
 Private structure declarations for this external binary contract live in
 `src/Backends/Amber/ProductionAmberAbi.h`. They preserve four-byte packing and compile-time
@@ -75,10 +93,7 @@ cells. The general LED bank and LED-display cells are intentionally distinct.
 
 MPU5's multicolour status LED and specialist test, lamp-failure, serial-hopper,
 timing, and DUART diagnostic helpers are deliberately not represented by Fabric's
-current output/configuration ABI. The current Amber configuration covers the shared
-reel, coin-channel, lockout, and percentage controls represented in
-`fabric_amber.h`; additional MPU5-only machine options require confirmed production
-export names and contracts before they can safely be enabled.
+current output/configuration ABI.
 
 Real provider validation remains a manual Windows integration step using the exact
 provider DLL and licensed ROM set. In particular, startup/configuration export names

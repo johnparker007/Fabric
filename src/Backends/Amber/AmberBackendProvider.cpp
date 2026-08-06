@@ -83,59 +83,106 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
                                     std::string &error) {
   if (!request.machine_configuration_size)
     return FABRIC_OK;
-  if (!request.machine_configuration || request.machine_configuration_size !=
-                                            sizeof(FabricAmberConfigurationV2)) {
-    error = "malformed Amber backend configuration size";
+  const std::string machine = request.machine_identifier;
+  auto malformed = [&](const std::string &detail) {
+    error = "Amber machine '" + machine + "' configuration " + detail +
+            "; provider DLL='" + request.backend_path + "'";
     return FABRIC_INVALID_ARGUMENT;
-  }
-  const auto &c = *static_cast<const FabricAmberConfigurationV2 *>(
-      request.machine_configuration);
-  if (c.magic != FABRIC_AMBER_CONFIGURATION_MAGIC ||
-      c.struct_size != sizeof(c) ||
-      c.version != FABRIC_AMBER_CONFIGURATION_VERSION_2 ||
-      (c.flags & ~UINT32_C(7))) {
-    error = "malformed Amber backend configuration";
-    return FABRIC_INVALID_ARGUMENT;
-  }
-  if ((c.flags & FABRIC_AMBER_CONFIGURE_REELS) &&
-      (c.reels.struct_size != sizeof(c.reels) ||
-       c.reels.version != FABRIC_AMBER_REEL_CONFIGURATION_VERSION_1 ||
-       c.reels.reel_count > FABRIC_AMBER_MAX_REELS ||
-       (c.reels.apply_mask & ~((UINT32_C(1) << FABRIC_AMBER_MAX_REELS) - 1)))) {
-    error = "malformed Amber reel configuration";
-    return FABRIC_INVALID_ARGUMENT;
-  }
-  if ((c.flags & FABRIC_AMBER_CONFIGURE_COINS) &&
-      (c.coins.struct_size != sizeof(c.coins) ||
-       c.coins.version != FABRIC_AMBER_COIN_CONFIGURATION_VERSION_2 ||
-       (c.coins.channel_apply_mask &
-        ~((UINT32_C(1) << FABRIC_AMBER_MAX_COIN_CHANNELS) - 1)) ||
-       (c.coins.route_apply_mask &
-        ~((UINT32_C(1) << FABRIC_AMBER_MAX_COIN_ROUTES) - 1)) ||
-       c.coins.coin_communication_style != 0 ||
-       c.coins.coin_communication_invert > 1 ||
-       c.coins.coin_pulse_cycles == 0 || c.coins.coin_edc_enabled > 1)) {
-    error = "malformed Amber coin configuration";
-    return FABRIC_INVALID_ARGUMENT;
-  }
-  if (c.flags & FABRIC_AMBER_CONFIGURE_COINS) {
-    for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i) {
-      if (!(c.coins.channel_apply_mask & (UINT32_C(1) << i)))
-        continue;
-      const auto &channel = c.coins.channels[i];
-      if (channel.channel_index != i || channel.enabled > 1 ||
-          channel.value > 12 || channel.lockout_invert > 1 ||
-          channel.reserved != 0) {
-        error = "malformed Amber coin channel configuration";
-        return FABRIC_INVALID_ARGUMENT;
+  };
+  if (!request.machine_configuration)
+    return malformed("is null");
+  if (machine == "jpm-system6") {
+    if (request.machine_configuration_size !=
+        sizeof(FabricAmberSystem6ConfigurationV2))
+      return malformed("expected FabricAmberSystem6ConfigurationV2 (" +
+                       std::to_string(sizeof(FabricAmberSystem6ConfigurationV2)) +
+                       " bytes), received " +
+                       std::to_string(request.machine_configuration_size) + " bytes");
+    const auto &c = *static_cast<const FabricAmberSystem6ConfigurationV2 *>(
+        request.machine_configuration);
+    if (c.magic != FABRIC_AMBER_SYSTEM6_CONFIGURATION_MAGIC ||
+        c.struct_size != sizeof(c) ||
+        c.version != FABRIC_AMBER_SYSTEM6_CONFIGURATION_VERSION_2 ||
+        (c.flags & ~UINT32_C(7)) || c.reserved[0] || c.reserved[1] ||
+        c.reserved[2])
+      return malformed("is not a valid FabricAmberSystem6ConfigurationV2");
+    if ((c.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_REELS) &&
+        (c.reels.struct_size != sizeof(c.reels) ||
+         c.reels.version != FABRIC_AMBER_SYSTEM6_REEL_CONFIGURATION_VERSION_1 ||
+         c.reels.reel_count > FABRIC_AMBER_MAX_REELS ||
+         (c.reels.apply_mask & ~UINT32_C(0xff))))
+      return malformed("has an invalid System 6 reel section");
+    if ((c.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_COINS) &&
+        (c.coins.struct_size != sizeof(c.coins) ||
+         c.coins.version != FABRIC_AMBER_SYSTEM6_COIN_CONFIGURATION_VERSION_2 ||
+         (c.coins.channel_apply_mask & ~UINT32_C(0x3f)) ||
+         (c.coins.route_apply_mask & ~UINT32_C(0xff)) ||
+         c.coins.coin_communication_style != 0 ||
+         c.coins.coin_communication_invert > 1 ||
+         !c.coins.coin_pulse_cycles || c.coins.coin_edc_enabled > 1))
+      return malformed("has an invalid System 6 coin section");
+    for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
+      if ((c.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_COINS) &&
+          (c.coins.channel_apply_mask & (UINT32_C(1) << i))) {
+        const auto &v = c.coins.channels[i];
+        if (v.channel_index != i || v.enabled > 1 || v.value > 12 ||
+            v.lockout_invert > 1 || v.reserved)
+          return malformed("has an invalid System 6 coin channel");
       }
+    if ((c.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_PERCENTAGE) &&
+        c.percentage_switch > 15)
+      return malformed("has a System 6 percentage outside 0..15");
+    return FABRIC_OK;
+  }
+  if (request.machine_configuration_size != sizeof(FabricAmberMpu5ConfigurationV1))
+    return malformed("expected FabricAmberMpu5ConfigurationV1 (" +
+                     std::to_string(sizeof(FabricAmberMpu5ConfigurationV1)) +
+                     " bytes), received " +
+                     std::to_string(request.machine_configuration_size) + " bytes");
+  const auto &c = *static_cast<const FabricAmberMpu5ConfigurationV1 *>(
+      request.machine_configuration);
+  if (c.magic != FABRIC_AMBER_MPU5_CONFIGURATION_MAGIC ||
+      c.struct_size != sizeof(c) ||
+      c.version != FABRIC_AMBER_MPU5_CONFIGURATION_VERSION_1 ||
+      (c.flags & ~UINT32_C(7)))
+    return malformed("is not a valid FabricAmberMpu5ConfigurationV1");
+  for (uint32_t value : c.reserved)
+    if (value)
+      return malformed("has nonzero reserved fields in FabricAmberMpu5ConfigurationV1");
+  if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_REELS) &&
+      (c.reels.struct_size != sizeof(c.reels) ||
+       c.reels.version != FABRIC_AMBER_MPU5_REEL_CONFIGURATION_VERSION_1 ||
+       c.reels.reel_count > FABRIC_AMBER_MAX_REELS ||
+       (c.reels.apply_mask & ~UINT32_C(0xff)) ||
+       (c.reels.apply_mask &
+        ~((UINT32_C(1) << c.reels.reel_count) - UINT32_C(1)))))
+    return malformed("has an invalid MPU5 reel section");
+  for (uint32_t i = 0; i < FABRIC_AMBER_MAX_REELS; ++i)
+    if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_REELS) &&
+        (c.reels.apply_mask & (UINT32_C(1) << i))) {
+      const auto &v = c.reels.reels[i];
+      if (v.reel_index != i || v.steps > 255 ||
+          v.opto_start > 255 || v.opto_end > 255 || v.opto_invert > 1)
+        return malformed("has an invalid MPU5 reel entry");
     }
-  }
-  if ((c.flags & FABRIC_AMBER_CONFIGURE_PERCENTAGE) &&
-      c.percentage_switch > 15) {
-    error = "Amber percentage switch must be in the range 0..15";
-    return FABRIC_INVALID_ARGUMENT;
-  }
+  if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_COINS) &&
+      (c.coins.struct_size != sizeof(c.coins) ||
+       c.coins.version != FABRIC_AMBER_MPU5_COIN_CONFIGURATION_VERSION_1 ||
+       c.coins.channel_count > FABRIC_AMBER_MAX_COIN_CHANNELS ||
+       (c.coins.apply_mask & ~UINT32_C(0x3f)) ||
+       (c.coins.apply_mask &
+        ~((UINT32_C(1) << c.coins.channel_count) - UINT32_C(1)))))
+    return malformed("has an invalid MPU5 coin section");
+  for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
+    if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_COINS) &&
+        (c.coins.apply_mask & (UINT32_C(1) << i))) {
+      const auto &v = c.coins.channels[i];
+      if (v.channel_index != i || v.enabled > 1 || v.value > 12 ||
+          v.lockout_invert > 1 || v.reserved)
+        return malformed("has an invalid MPU5 coin channel");
+    }
+  if ((c.flags & FABRIC_AMBER_MPU5_CONFIGURE_PERCENTAGE) && c.percentage > 15)
+    return malformed("has an MPU5 percentage outside 0..15");
   return FABRIC_OK;
 }
 

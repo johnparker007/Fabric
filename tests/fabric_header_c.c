@@ -15,7 +15,7 @@ _Static_assert(FABRIC_ABI_VERSION_CURRENT == UINT32_C(0x00030000),
 _Static_assert(sizeof(((FabricSegmentDisplay *)0)->segment_masks) ==
                    FABRIC_SEGMENT_DIGIT_CAPACITY * sizeof(uint64_t),
                "inline segment ownership");
-_Static_assert(sizeof(FabricAmberReelConfigurationV1) == 208,
+_Static_assert(sizeof(FabricAmberSystem6ReelConfigurationV1) == 208,
                "Amber reel configuration layout");
 _Static_assert(sizeof(FabricInput) == 88, "Fabric input ABI size");
 _Static_assert(offsetof(FabricInput, numerical_index) == 72, "input index offset");
@@ -25,12 +25,24 @@ _Static_assert(offsetof(FabricInput, coin_channel) == 81, "coin channel offset")
 _Static_assert(offsetof(FabricInput, coin_value) == 82, "coin value offset");
 _Static_assert(FABRIC_CAPABILITY_COIN_INPUT == (UINT64_C(1) << 6),
                "coin capability bit");
-_Static_assert(sizeof(FabricAmberCoinConfigurationV2) == 408,
+_Static_assert(sizeof(FabricAmberSystem6CoinConfigurationV2) == 408,
                "Amber coin v2 configuration layout");
-_Static_assert(offsetof(FabricAmberCoinConfigurationV2, coin_pulse_cycles) == 24,
+_Static_assert(offsetof(FabricAmberSystem6CoinConfigurationV2, coin_pulse_cycles) == 24,
                "Amber pulse-cycle offset");
-_Static_assert(sizeof(FabricAmberConfigurationV2) == 648,
+_Static_assert(sizeof(FabricAmberSystem6ConfigurationV2) == 648,
                "Amber machine v2 configuration layout");
+_Static_assert(sizeof(FabricAmberMpu5ReelConfigV1) == 20,
+               "MPU5 reel entry layout");
+_Static_assert(sizeof(FabricAmberMpu5ReelConfigurationV1) == 176,
+               "MPU5 reel configuration layout");
+_Static_assert(sizeof(FabricAmberMpu5CoinChannelConfigV1) == 20,
+               "MPU5 coin entry layout");
+_Static_assert(sizeof(FabricAmberMpu5CoinConfigurationV1) == 136,
+               "MPU5 coin configuration layout");
+_Static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 420,
+               "MPU5 machine configuration layout");
+_Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, percentage) == 328,
+               "MPU5 percentage offset");
 int main(void) {
   FabricRuntime *runtime = 0;
   if (FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) != FABRIC_OK)

@@ -26,7 +26,10 @@ uint64_t cycles;
 uint32_t run_calls;
 uint8_t switches[256];
 uint8_t reel_steps[PA2_NUM_REELS];
+uint8_t reel_opto_start[PA2_NUM_REELS], reel_opto_end[PA2_NUM_REELS];
+uint8_t reel_opto_invert[PA2_NUM_REELS];
 uint8_t coin_values[16];
+uint8_t coin_enabled[16], coin_lockout_invert[16];
 uint8_t percentage;
 uint32_t reset_count;
 uint8_t configuration_stage;
@@ -51,7 +54,12 @@ PRODUCTION_EXPORT uint8_t Shutdown() {
 PRODUCTION_EXPORT uint8_t Reset() {
   cycles = 0;
   std::memset(reel_steps, 0, sizeof(reel_steps));
+  std::memset(reel_opto_start, 0, sizeof(reel_opto_start));
+  std::memset(reel_opto_end, 0, sizeof(reel_opto_end));
+  std::memset(reel_opto_invert, 0, sizeof(reel_opto_invert));
   std::memset(coin_values, 0, sizeof(coin_values));
+  std::memset(coin_enabled, 0, sizeof(coin_enabled));
+  std::memset(coin_lockout_invert, 0, sizeof(coin_lockout_invert));
   percentage = 0;
   configuration_stage = 0;
   ++reset_count;
@@ -85,9 +93,11 @@ PRODUCTION_EXPORT void SetCommStyle(uint8_t value) { comm_style = value; ++mecha
 PRODUCTION_EXPORT void SetCommInvert(uint8_t value) { comm_invert = value; ++mechanism_calls; }
 PRODUCTION_EXPORT void SetCycles(uint32_t value) { pulse_cycles = value; ++mechanism_calls; }
 PRODUCTION_EXPORT void SetEDCEnable(uint8_t value) { edc_enabled = value; ++mechanism_calls; }
-PRODUCTION_EXPORT void SetOptoInvert(uint8_t, uint8_t) {}
-PRODUCTION_EXPORT void SetOptoStart(uint8_t, uint8_t) {}
-PRODUCTION_EXPORT void SetOptoEnd(uint8_t, uint8_t) {}
+#ifndef FAKE_AMBER_OMIT_REEL_OPTO
+PRODUCTION_EXPORT void SetOptoInvert(uint8_t i, uint8_t value) { reel_opto_invert[i] = value; }
+PRODUCTION_EXPORT void SetOptoStart(uint8_t i, uint8_t value) { reel_opto_start[i] = value; }
+PRODUCTION_EXPORT void SetOptoEnd(uint8_t i, uint8_t value) { reel_opto_end[i] = value; }
+#endif
 #ifndef FAKE_AMBER_OMIT_SET_STEPS
 PRODUCTION_EXPORT void SetSteps(uint8_t i, uint8_t value) {
   if (i < PA2_NUM_REELS)
@@ -101,8 +111,8 @@ PRODUCTION_EXPORT void SetCoinValue(uint8_t i, uint8_t value) {
   if (configuration_stage == 1)
     configuration_stage = 2;
 }
-PRODUCTION_EXPORT void SetCoinEnable(uint8_t, uint8_t) {}
-PRODUCTION_EXPORT void SetLockoutInvert(uint8_t, uint8_t) {}
+PRODUCTION_EXPORT void SetCoinEnable(uint8_t i, uint8_t value) { coin_enabled[i] = value; }
+PRODUCTION_EXPORT void SetLockoutInvert(uint8_t i, uint8_t value) { coin_lockout_invert[i] = value; }
 PRODUCTION_EXPORT void SetLockoutVal(uint8_t, uint8_t) { ++lockout_val_calls; }
 PRODUCTION_EXPORT void SetPercent(uint8_t value) {
   percentage = value;
@@ -136,6 +146,13 @@ PRODUCTION_EXPORT uint32_t GetOutputSnapshot(void *buffer, uint32_t size) {
   s.MatrixLamps[9].Brightness = static_cast<float>(pulse_cycles);
   s.MatrixLamps[10].Brightness = static_cast<float>(lockout_val_calls);
   s.MatrixLamps[11].Brightness = static_cast<float>(comm_style + comm_invert + edc_enabled);
+  s.MatrixLamps[12].Brightness = static_cast<float>(reel_opto_start[1]);
+  s.MatrixLamps[13].Brightness = static_cast<float>(reel_opto_end[1]);
+  s.MatrixLamps[14].Brightness = static_cast<float>(reel_opto_invert[1]);
+  s.MatrixLamps[15].Brightness = static_cast<float>(coin_enabled[2]);
+  s.MatrixLamps[16].Brightness = static_cast<float>(coin_values[2]);
+  s.MatrixLamps[17].Brightness = static_cast<float>(coin_lockout_invert[2]);
+  s.MatrixLamps[18].Brightness = static_cast<float>(percentage);
   s.ReelCount = PA2_NUM_REELS;
   s.Reels[0].Position = static_cast<int32_t>(cycles + reel_steps[0]);
   s.AlphaSegmentedDisplayCount = 2;

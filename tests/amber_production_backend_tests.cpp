@@ -39,6 +39,35 @@ static void FABRIC_CALL diagnostic(const char *message, void *context) {
   static_cast<std::vector<std::string> *>(context)->emplace_back(message);
 }
 
+static FabricAmberMpu5ConfigurationV1 mpu5_configuration() {
+  FabricAmberMpu5ConfigurationV1 c{};
+  c.magic = FABRIC_AMBER_MPU5_CONFIGURATION_MAGIC;
+  c.struct_size = sizeof(c);
+  c.version = FABRIC_AMBER_MPU5_CONFIGURATION_VERSION_1;
+  c.flags = FABRIC_AMBER_MPU5_CONFIGURE_REELS |
+            FABRIC_AMBER_MPU5_CONFIGURE_COINS |
+            FABRIC_AMBER_MPU5_CONFIGURE_PERCENTAGE;
+  c.reels.struct_size = sizeof(c.reels);
+  c.reels.version = FABRIC_AMBER_MPU5_REEL_CONFIGURATION_VERSION_1;
+  c.reels.reel_count = 2;
+  c.reels.apply_mask = UINT32_C(1) << 1;
+  c.reels.reels[1].reel_index = 1;
+  c.reels.reels[1].steps = 96;
+  c.reels.reels[1].opto_start = 7;
+  c.reels.reels[1].opto_end = 11;
+  c.reels.reels[1].opto_invert = 1;
+  c.coins.struct_size = sizeof(c.coins);
+  c.coins.version = FABRIC_AMBER_MPU5_COIN_CONFIGURATION_VERSION_1;
+  c.coins.channel_count = 3;
+  c.coins.apply_mask = UINT32_C(1) << 2;
+  c.coins.channels[2].channel_index = 2;
+  c.coins.channels[2].enabled = 1;
+  c.coins.channels[2].value = 5;
+  c.coins.channels[2].lockout_invert = 1;
+  c.percentage = 9;
+  return c;
+}
+
 int main() {
   FabricRuntime *runtime = nullptr;
   CHECK(FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) == FABRIC_OK);
@@ -68,20 +97,20 @@ int main() {
   roms[2].role = FABRIC_ROM_ROLE_PROGRAM;
   roms[2].slot = 0;
   roms[2].path = program[0];
-  FabricAmberConfigurationV2 c{};
-  c.magic = FABRIC_AMBER_CONFIGURATION_MAGIC;
+  FabricAmberSystem6ConfigurationV2 c{};
+  c.magic = FABRIC_AMBER_SYSTEM6_CONFIGURATION_MAGIC;
   c.struct_size = sizeof(c);
-  c.version = FABRIC_AMBER_CONFIGURATION_VERSION_2;
-  c.flags = FABRIC_AMBER_CONFIGURE_REELS | FABRIC_AMBER_CONFIGURE_COINS |
-            FABRIC_AMBER_CONFIGURE_PERCENTAGE;
+  c.version = FABRIC_AMBER_SYSTEM6_CONFIGURATION_VERSION_2;
+  c.flags = FABRIC_AMBER_SYSTEM6_CONFIGURE_REELS | FABRIC_AMBER_SYSTEM6_CONFIGURE_COINS |
+            FABRIC_AMBER_SYSTEM6_CONFIGURE_PERCENTAGE;
   c.reels.struct_size = sizeof(c.reels);
-  c.reels.version = FABRIC_AMBER_REEL_CONFIGURATION_VERSION_1;
+  c.reels.version = FABRIC_AMBER_SYSTEM6_REEL_CONFIGURATION_VERSION_1;
   c.reels.reel_count = 1;
   c.reels.apply_mask = 1;
   c.reels.reels[0].steps = 9;
   c.reels.reels[0].enabled = 1;
   c.coins.struct_size = sizeof(c.coins);
-  c.coins.version = FABRIC_AMBER_COIN_CONFIGURATION_VERSION_2;
+  c.coins.version = FABRIC_AMBER_SYSTEM6_COIN_CONFIGURATION_VERSION_2;
   c.coins.channel_apply_mask = 1;
   c.coins.coin_communication_style = 0;
   c.coins.coin_communication_invert = 0;
@@ -291,10 +320,56 @@ int main() {
   CHECK(session_error(session).find("missing reel export") !=
         std::string::npos);
   FabricDestroySession(session);
+  auto wrong_for_system6 = request(FAKE_PRODUCTION_AMBER_PATH);
+  auto mpu_config = mpu5_configuration();
+  wrong_for_system6.machine_configuration = &mpu_config;
+  wrong_for_system6.machine_configuration_size = sizeof(mpu_config);
+  CHECK(FabricCreateSession(runtime, &wrong_for_system6, &session) ==
+        FABRIC_INVALID_ARGUMENT);
+  CHECK(error(runtime).find("FabricAmberSystem6ConfigurationV2") !=
+        std::string::npos);
+
   auto mpu5 = request(FAKE_PRODUCTION_AMBER_MPU5_PATH);
   std::strcpy(mpu5.machine_identifier, "barcrest-mpu5");
   mpu5.rom_resources = roms;
   mpu5.rom_resource_count = 3;
+  auto wrong_for_mpu5 = mpu5;
+  wrong_for_mpu5.machine_configuration = &c;
+  wrong_for_mpu5.machine_configuration_size = sizeof(c);
+  CHECK(FabricCreateSession(runtime, &wrong_for_mpu5, &session) ==
+        FABRIC_INVALID_ARGUMENT);
+  CHECK(error(runtime).find("FabricAmberMpu5ConfigurationV1") !=
+        std::string::npos);
+  auto invalid_mpu = [&](FabricAmberMpu5ConfigurationV1 invalid,
+                         uint32_t supplied_size =
+                             sizeof(FabricAmberMpu5ConfigurationV1)) {
+    auto r = mpu5;
+    r.machine_configuration = &invalid;
+    r.machine_configuration_size = supplied_size;
+    FabricMachineSession *invalid_session = nullptr;
+    const FabricResult result =
+        FabricCreateSession(runtime, &r, &invalid_session);
+    if (invalid_session)
+      FabricDestroySession(invalid_session);
+    return result;
+  };
+  CHECK(invalid_mpu(mpu_config, sizeof(mpu_config) - 4) ==
+        FABRIC_INVALID_ARGUMENT);
+  auto invalid = mpu_config;
+  invalid.magic ^= 1;
+  CHECK(invalid_mpu(invalid) == FABRIC_INVALID_ARGUMENT);
+  invalid = mpu_config; ++invalid.version;
+  CHECK(invalid_mpu(invalid) == FABRIC_INVALID_ARGUMENT);
+  invalid = mpu_config; invalid.flags |= UINT32_C(0x80000000);
+  CHECK(invalid_mpu(invalid) == FABRIC_INVALID_ARGUMENT);
+  invalid = mpu_config; invalid.reserved[4] = 1;
+  CHECK(invalid_mpu(invalid) == FABRIC_INVALID_ARGUMENT);
+  invalid = mpu_config; invalid.reels.reels[1].reel_index = 7;
+  CHECK(invalid_mpu(invalid) == FABRIC_INVALID_ARGUMENT);
+  invalid = mpu_config; invalid.coins.channels[2].channel_index = 5;
+  CHECK(invalid_mpu(invalid) == FABRIC_INVALID_ARGUMENT);
+
+  /* No MPU5 configuration remains a valid launch. */
   session = nullptr;
   CHECK(FabricCreateSession(runtime, &mpu5, &session) == FABRIC_OK);
   CHECK(FabricSessionInitialise(session) == FABRIC_OK);
@@ -323,6 +398,62 @@ int main() {
   mpu_coin.kind = FABRIC_INPUT_COIN; mpu_coin.coin_channel = 2;
   mpu_coin.coin_value = 4; mpu_coin.active = 1;
   CHECK(FabricSessionSubmitInput(session, &mpu_coin) == FABRIC_OK);
+  CHECK(FabricSessionSubmitInput(session, &mpu_coin) == FABRIC_OK);
+  mpu_coin.active = 0;
+  CHECK(FabricSessionSubmitInput(session, &mpu_coin) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &mpu_snap) == FABRIC_OK);
+  CHECK(mpu_lamps[5].brightness == 1.0f);
+  CHECK(mpu_lamps[6].brightness == 36.0f); /* mechanism 0, channel 2, value 4 */
+  CHECK(FabricSessionShutdown(session) == FABRIC_OK);
+  FabricDestroySession(session);
+
+  /* A requested section resolves and applies only its own native exports. */
+  auto percentage_only = mpu5_configuration();
+  percentage_only.flags = FABRIC_AMBER_MPU5_CONFIGURE_PERCENTAGE;
+  auto percentage_request = request(FAKE_PRODUCTION_AMBER_MPU5_MISSING_STEPS_PATH);
+  std::strcpy(percentage_request.machine_identifier, "barcrest-mpu5");
+  percentage_request.rom_resources = roms;
+  percentage_request.rom_resource_count = 3;
+  percentage_request.machine_configuration = &percentage_only;
+  percentage_request.machine_configuration_size = sizeof(percentage_only);
+  CHECK(FabricCreateSession(runtime, &percentage_request, &session) == FABRIC_OK);
+  CHECK(FabricSessionInitialise(session) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &mpu_snap) == FABRIC_OK);
+  CHECK(mpu_lamps[12].brightness == 0.0f &&
+        mpu_lamps[15].brightness == 0.0f);
+  CHECK(mpu_lamps[18].brightness == 9.0f);
+  CHECK(FabricSessionShutdown(session) == FABRIC_OK);
+  FabricDestroySession(session);
+
+  auto missing_steps_request = percentage_request;
+  auto reels_only = mpu5_configuration();
+  reels_only.flags = FABRIC_AMBER_MPU5_CONFIGURE_REELS;
+  missing_steps_request.machine_configuration = &reels_only;
+  CHECK(FabricCreateSession(runtime, &missing_steps_request, &session) == FABRIC_OK);
+  CHECK(FabricSessionInitialise(session) == FABRIC_NOT_SUPPORTED);
+  CHECK(session_error(session).find("SetSteps") != std::string::npos);
+  CHECK(session_error(session).find("barcrest-mpu5") != std::string::npos);
+  FabricDestroySession(session);
+
+  auto configured_mpu5 = mpu5;
+  configured_mpu5.machine_configuration = &mpu_config;
+  configured_mpu5.machine_configuration_size = sizeof(mpu_config);
+  CHECK(FabricCreateSession(runtime, &configured_mpu5, &session) == FABRIC_OK);
+  CHECK(FabricSessionInitialise(session) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &mpu_snap) == FABRIC_OK);
+  CHECK(mpu_reels[0].position == 0); /* reel zero was not selected */
+  CHECK(mpu_lamps[12].brightness == 7.0f);
+  CHECK(mpu_lamps[13].brightness == 11.0f);
+  CHECK(mpu_lamps[14].brightness == 1.0f);
+  CHECK(mpu_lamps[15].brightness == 1.0f);
+  CHECK(mpu_lamps[16].brightness == 5.0f);
+  CHECK(mpu_lamps[17].brightness == 1.0f);
+  CHECK(mpu_lamps[18].brightness == 9.0f);
+  CHECK(FabricSessionReset(session) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &mpu_snap) == FABRIC_OK);
+  CHECK(mpu_lamps[12].brightness == 7.0f &&
+        mpu_lamps[16].brightness == 5.0f &&
+        mpu_lamps[18].brightness == 9.0f);
   CHECK(FabricSessionShutdown(session) == FABRIC_OK);
   FabricDestroySession(session);
   FabricDestroyRuntime(runtime);
