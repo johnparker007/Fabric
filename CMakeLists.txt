@@ -46,6 +46,18 @@ function(add_production_amber_fake target)
   target_compile_features(${target} PRIVATE cxx_std_17)
 endfunction()
 add_production_amber_fake(FakeProductionAmber)
+add_library(FakeProductionAmberMpu5 SHARED tests/fakes/FakeProductionAmberMpu5.cpp)
+target_include_directories(FakeProductionAmberMpu5 PRIVATE src/Backends/Amber)
+add_library(FakeProductionAmberMpu5MissingSteps SHARED tests/fakes/FakeProductionAmberMpu5.cpp)
+target_include_directories(FakeProductionAmberMpu5MissingSteps PRIVATE src/Backends/Amber)
+target_compile_definitions(FakeProductionAmberMpu5MissingSteps PRIVATE FAKE_AMBER_OMIT_SET_STEPS)
+foreach(feature PicMode Dip ReelJumper)
+  add_library(FakeProductionAmberMpu5Missing${feature} SHARED tests/fakes/FakeProductionAmberMpu5.cpp)
+  target_include_directories(FakeProductionAmberMpu5Missing${feature} PRIVATE src/Backends/Amber)
+endforeach()
+target_compile_definitions(FakeProductionAmberMpu5MissingPicMode PRIVATE FAKE_AMBER_OMIT_SET_PIC_MODE)
+target_compile_definitions(FakeProductionAmberMpu5MissingDip PRIVATE FAKE_AMBER_OMIT_SET_DIP)
+target_compile_definitions(FakeProductionAmberMpu5MissingReelJumper PRIVATE FAKE_AMBER_OMIT_SET_REEL_JUMPER)
 add_production_amber_fake(FakeProductionAmberMissingRequired)
 target_compile_definitions(FakeProductionAmberMissingRequired PRIVATE FAKE_AMBER_OMIT_INITIALISE)
 add_production_amber_fake(FakeProductionAmberMissingConfig)
@@ -74,11 +86,16 @@ target_include_directories(AmberProductionBackendTests PRIVATE include)
 target_link_libraries(AmberProductionBackendTests PRIVATE FabricRuntime)
 target_compile_definitions(AmberProductionBackendTests PRIVATE
   FAKE_PRODUCTION_AMBER_PATH="$<TARGET_FILE:FakeProductionAmber>"
+  FAKE_PRODUCTION_AMBER_MPU5_PATH="$<TARGET_FILE:FakeProductionAmberMpu5>"
+  FAKE_PRODUCTION_AMBER_MPU5_MISSING_STEPS_PATH="$<TARGET_FILE:FakeProductionAmberMpu5MissingSteps>"
+  FAKE_PRODUCTION_AMBER_MPU5_MISSING_PIC_MODE_PATH="$<TARGET_FILE:FakeProductionAmberMpu5MissingPicMode>"
+  FAKE_PRODUCTION_AMBER_MPU5_MISSING_DIP_PATH="$<TARGET_FILE:FakeProductionAmberMpu5MissingDip>"
+  FAKE_PRODUCTION_AMBER_MPU5_MISSING_REEL_JUMPER_PATH="$<TARGET_FILE:FakeProductionAmberMpu5MissingReelJumper>"
   FAKE_PRODUCTION_AMBER_MISSING_CONFIG_PATH="$<TARGET_FILE:FakeProductionAmberMissingConfig>"
   FAKE_PRODUCTION_AMBER_MISSING_COIN_IN_PATH="$<TARGET_FILE:FakeProductionAmberMissingCoinIn>"
   FAKE_PRODUCTION_AMBER_MISSING_MECHANISM_PATH="$<TARGET_FILE:FakeProductionAmberMissingMechanism>"
   FAKE_PRODUCTION_AMBER_MISSING_REQUIRED_PATH="$<TARGET_FILE:FakeProductionAmberMissingRequired>")
-add_dependencies(AmberProductionBackendTests FakeProductionAmber FakeProductionAmberMissingConfig FakeProductionAmberMissingRequired FakeProductionAmberMissingCoinIn FakeProductionAmberMissingMechanism)
+add_dependencies(AmberProductionBackendTests FakeProductionAmber FakeProductionAmberMpu5 FakeProductionAmberMpu5MissingSteps FakeProductionAmberMpu5MissingPicMode FakeProductionAmberMpu5MissingDip FakeProductionAmberMpu5MissingReelJumper FakeProductionAmberMissingConfig FakeProductionAmberMissingRequired FakeProductionAmberMissingCoinIn FakeProductionAmberMissingMechanism)
 add_test(NAME AmberProductionBackendTests COMMAND AmberProductionBackendTests)
 
 add_executable(AmberProductionAudioTests tests/amber_production_audio_tests.cpp)
@@ -94,7 +111,8 @@ add_test(NAME AmberProductionAudioTests COMMAND AmberProductionAudioTests)
 
 add_executable(AmberTraceTests tests/amber_trace_tests.cpp $<TARGET_OBJECTS:FabricRuntimeCore>)
 target_include_directories(AmberTraceTests PRIVATE include src src/Backends/Amber)
-target_compile_definitions(AmberTraceTests PRIVATE FABRIC_EXPORTS FAKE_PRODUCTION_AMBER_PATH="$<TARGET_FILE:FakeProductionAmber>")
+target_compile_definitions(AmberTraceTests PRIVATE FABRIC_EXPORTS FAKE_PRODUCTION_AMBER_PATH="$<TARGET_FILE:FakeProductionAmber>"
+  FAKE_PRODUCTION_AMBER_MPU5_PATH="$<TARGET_FILE:FakeProductionAmberMpu5>")
 target_compile_features(AmberTraceTests PRIVATE cxx_std_17)
 add_dependencies(AmberTraceTests FakeProductionAmber)
 if(CMAKE_DL_LIBS)

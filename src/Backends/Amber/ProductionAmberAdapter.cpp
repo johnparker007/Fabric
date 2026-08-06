@@ -46,14 +46,17 @@ public:
   ProductionAmberInstance(std::unique_ptr<AmberDynamicLibrary> library, ProductionAmberApi api,
                  std::vector<std::string> program,
                  std::vector<std::string> sound,
-                 const FabricAmberConfigurationV2 *configuration,
-                 std::string path, FabricDiagnosticCallback diagnostic,
+                 const FabricAmberSystem6ConfigurationV2 *system6_configuration,
+                 const FabricAmberMpu5ConfigurationV1 *mpu5_configuration,
+                 std::string path, bool mpu5, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
-        sound_(std::move(sound)), path_(std::move(path)),
+        sound_(std::move(sound)), path_(std::move(path)), mpu5_(mpu5),
         diagnostic_(diagnostic), diagnostic_user_data_(diagnostic_user_data) {
-    if (configuration)
-      config_ = *configuration;
+    if (system6_configuration)
+      system6_config_ = *system6_configuration;
+    if (mpu5_configuration)
+      mpu5_config_ = *mpu5_configuration;
   }
   ~ProductionAmberInstance() override {
     if (started_ && !stopped_)
@@ -85,7 +88,15 @@ public:
   }
   FabricResult reset() noexcept override {
     emit("AmberResetBegin", "result=pending");
-    api_.Reset();
+    if (mpu5_) {
+      const FabricResult configured = apply_mpu5_configuration("Pre-reset configuration");
+      if (configured != FABRIC_OK)
+        return configured;
+      if (!api_.ResetMpu5())
+        return fail("Reset", "Amber return=0; machine='barcrest-mpu5'; DLL='" + path_ + "'");
+    } else {
+      api_.Reset();
+    }
     asserted_.clear();
     asserted_coins_.clear();
     audio_frames_available_ = 0;
@@ -93,9 +104,11 @@ public:
     emit("AmberResetEnd", "result=success");
     if (reset_trace_count_ < 8)
       amber_trace::Write("Reset: native reset completed");
-    const FabricResult configured = apply_configuration("Reset configuration");
-    if (configured != FABRIC_OK)
-      return configured;
+    if (!mpu5_) {
+      const FabricResult configured = apply_configuration("Reset configuration");
+      if (configured != FABRIC_OK)
+        return configured;
+    }
     if (reset_trace_count_ < 8) {
       amber_trace::Write("Reset: Fabric result=0");
       ++reset_trace_count_;
@@ -104,7 +117,7 @@ public:
   }
   FabricResult advance(uint64_t ns) noexcept override {
     constexpr uint64_t tick_ns = UINT64_C(1000000);
-    constexpr uint32_t request = 8000;
+    const uint32_t request = mpu5_ ? 16000u : 8000u;
     constexpr uint64_t maximum_catch_up = 3;
     const uint64_t whole_ticks = ns / tick_ns;
     const uint64_t combined_remainder = remainder_ + ns % tick_ns;
@@ -191,7 +204,11 @@ public:
       if (asserted_coins_.count(key))
         return ok();
       asserted_coins_.insert(key);
-      const bool accepted = api_.CoinIn(input.coin_channel, input.coin_value) != 0;
+      const bool accepted = mpu5_
+                                ? api_.CoinInMpu5(0, input.coin_channel,
+                                                  input.coin_value) != 0
+                                : api_.CoinIn(input.coin_channel,
+                                              input.coin_value) != 0;
       if (coin_input_diagnostic_count_ < 64) {
         emit("AmberCoinInput", "channel=" + std::to_string(input.coin_channel) +
                                    "; value=" + std::to_string(input.coin_value) +
@@ -243,22 +260,27 @@ public:
                       "; embedded size=" + std::to_string(source.SizeBytes) +
                       "; version=" + std::to_string(source.Version) +
                       "; DLL='" + path_ + "'");
-    if (source.MatrixLampCount < 512 ||
-        source.MatrixLampCount > PA2_MAX_MATRIX_LAMPS || source.ReelCount < 8 ||
-        source.ReelCount > PA2_NUM_REELS ||
-        source.AlphaSegmentedDisplayCount < 1 ||
-        source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS ||
-        source.LedCount < 256 || source.LedCount > PA2_MAX_LEDS)
+    const bool invalid_counts = mpu5_
+        ? (source.MatrixLampCount != 320 || source.ReelCount != 8 ||
+           source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS ||
+           source.LedDisplayCount > PA2_NUM_LED_DISPLAYS)
+        : (source.MatrixLampCount < 512 ||
+           source.MatrixLampCount > PA2_MAX_MATRIX_LAMPS || source.ReelCount < 8 ||
+           source.ReelCount > PA2_NUM_REELS ||
+           source.AlphaSegmentedDisplayCount < 1 ||
+           source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS ||
+           source.LedCount < 256 || source.LedCount > PA2_MAX_LEDS);
+    if (invalid_counts)
       return fail("GetOutputSnapshot",
                   "invalid production counts: matrix lamps=" +
                       std::to_string(source.MatrixLampCount) + "; reels=" +
                       std::to_string(source.ReelCount) + "; alpha displays=" +
                       std::to_string(source.AlphaSegmentedDisplayCount) +
                       "; LEDs=" + std::to_string(source.LedCount));
-    out.lamp_count = 512;
-    out.reel_count = 8;
-    out.character_display_count = 1;
-    out.segment_display_count = 16;
+    out.lamp_count = source.MatrixLampCount;
+    out.reel_count = source.ReelCount;
+    out.character_display_count = mpu5_ ? source.AlphaSegmentedDisplayCount : 1;
+    out.segment_display_count = mpu5_ ? source.LedDisplayCount : 16;
     if (out.lamp_capacity < out.lamp_count ||
         out.reel_capacity < out.reel_count ||
         out.character_display_capacity < out.character_display_count ||
@@ -280,8 +302,8 @@ public:
                         std::to_string(i) + "; value=" +
                         std::to_string(brightness));
     }
-    for (uint32_t i = 0; i < 256; ++i)
-      if (!std::isfinite(source.Leds[i].Brightness))
+    for (uint32_t i = 0; i < (mpu5_ ? source.LedDisplayCount : 256u); ++i)
+      if (!std::isfinite(mpu5_ ? source.LedDisplays[i].Brightness : source.Leds[i].Brightness))
         return fail("GetOutputSnapshot",
                     "LED brightness is non-finite; index=" + std::to_string(i));
     for (uint32_t i = 0; i < out.lamp_count; ++i) {
@@ -333,11 +355,15 @@ public:
                     "amber.seven-segment.%u", i);
       d.digit_count = 1;
       d.digit_capacity = FABRIC_SEGMENT_DIGIT_CAPACITY;
-      uint64_t mask = 0;
-      for (uint32_t segment = 0; segment < 8; ++segment)
-        mask = (mask << 1) |
-               (source.Leds[i * 16 + segment].OnOff ? UINT64_C(1) : 0);
-      d.segment_masks[0] = mask;
+      if (mpu5_) {
+        d.segment_masks[0] = source.LedDisplays[i].OnOff;
+      } else {
+        uint64_t mask = 0;
+        for (uint32_t segment = 0; segment < 8; ++segment)
+          mask = (mask << 1) |
+                 (source.Leds[i * 16 + segment].OnOff ? UINT64_C(1) : 0);
+        d.segment_masks[0] = mask;
+      }
     }
     if (snapshot_trace_count_ < 8) {
       uint32_t active = 0, changed_lamps = 0, changed_reels = 0,
@@ -548,9 +574,98 @@ private:
     }
     return true;
   }
+  FabricResult apply_mpu5_configuration(const char *phase) {
+    auto missing = [&](const char *name) {
+      return unsupported(phase, "requested MPU5 configuration export '" +
+          std::string(name) + "' is missing; machine='barcrest-mpu5'; DLL='" +
+          path_ + "'; stage=configuration");
+    };
+    const auto &o = mpu5_config_.options;
+    const uint32_t options =
+        (mpu5_config_.flags & FABRIC_AMBER_MPU5_CONFIGURE_OPTIONS)
+            ? o.apply_mask : 0;
+#define MPU_OPTION(bit, member, export_name, cast_type)                         \
+    if (options & (bit)) {                                                      \
+      if (!api_.export_name) return missing(#export_name);                     \
+      api_.export_name(static_cast<cast_type>(o.member));                      \
+    }
+    MPU_OPTION(FABRIC_AMBER_MPU5_OPTION_CHARACTERISER_ADDRESS,
+               characteriser_address, SetCharacteriserAddress, uint32_t);
+    MPU_OPTION(FABRIC_AMBER_MPU5_OPTION_PIC_MODE, pic_mode, SetPICMode, uint8_t);
+    MPU_OPTION(FABRIC_AMBER_MPU5_OPTION_SEC_FITTED, sec_fitted, SetSECFitted, uint8_t);
+    MPU_OPTION(FABRIC_AMBER_MPU5_OPTION_HOPPER_TYPE, hopper_type, SetHopperType, uint8_t);
+#undef MPU_OPTION
+    if (options & (FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_0 |
+                   FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_1)) {
+      if (!api_.SetReelJumperProfile) return missing("SetReelJumperProfile");
+      if (options & FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_0)
+        api_.SetReelJumperProfile(0, static_cast<uint8_t>(o.reel_jumper_profile_0));
+      if (options & FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_1)
+        api_.SetReelJumperProfile(1, static_cast<uint8_t>(o.reel_jumper_profile_1));
+    }
+    if (mpu5_config_.flags & FABRIC_AMBER_MPU5_CONFIGURE_REELS) {
+      if (!api_.SetSteps) return missing("SetSteps");
+      if (!api_.SetOptoStart) return missing("SetOptoStart");
+      if (!api_.SetOptoEnd) return missing("SetOptoEnd");
+      if (!api_.SetOptoInvert) return missing("SetOptoInvert");
+      for (uint32_t i = 0; i < FABRIC_AMBER_MAX_REELS; ++i)
+        if (mpu5_config_.reels.apply_mask & (UINT32_C(1) << i)) {
+          const auto &r = mpu5_config_.reels.reels[i];
+          const auto index = static_cast<uint8_t>(i);
+          api_.SetSteps(index, static_cast<uint8_t>(r.steps));
+          api_.SetOptoStart(index, static_cast<uint8_t>(r.opto_start));
+          api_.SetOptoEnd(index, static_cast<uint8_t>(r.opto_end));
+          api_.SetOptoInvert(index, static_cast<uint8_t>(r.opto_invert));
+        }
+    }
+    if (mpu5_config_.flags & FABRIC_AMBER_MPU5_CONFIGURE_COINS) {
+      if (!api_.SetCommStyle) return missing("SetCommStyle");
+      if (!api_.SetCommInvert) return missing("SetCommInvert");
+      if (!api_.SetCycles) return missing("SetCycles");
+      if (!api_.SetEDCEnable) return missing("SetEDCEnable");
+      if (!api_.SetCoinEnable) return missing("SetCoinEnable");
+      if (!api_.SetCoinValue) return missing("SetCoinValue");
+      if (!api_.SetLockoutInvert) return missing("SetLockoutInvert");
+      const auto &coins = mpu5_config_.coins;
+      api_.SetCommStyle(static_cast<uint8_t>(coins.communication_style));
+      api_.SetCommInvert(static_cast<uint8_t>(coins.communication_invert));
+      api_.SetCycles(coins.pulse_cycles);
+      api_.SetEDCEnable(static_cast<uint8_t>(coins.edc_enabled));
+      for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
+        if (coins.apply_mask & (UINT32_C(1) << i)) {
+          const auto &c = coins.channels[i];
+          const auto index = static_cast<uint8_t>(i);
+          api_.SetCoinEnable(index, static_cast<uint8_t>(c.enabled));
+          api_.SetCoinValue(index, static_cast<uint8_t>(c.value));
+          api_.SetLockoutInvert(index, static_cast<uint8_t>(c.lockout_invert));
+        }
+    }
+    if (options & FABRIC_AMBER_MPU5_OPTION_DIPS) {
+      if (!api_.SetDIP) return missing("SetDIP");
+      for (uint8_t i = 0; i < FABRIC_AMBER_MPU5_DIP_COUNT; ++i)
+        api_.SetDIP(i, static_cast<uint8_t>((o.dip_switch_bits >> i) & 1u));
+    }
+    if (options & FABRIC_AMBER_MPU5_OPTION_STAKE) {
+      if (!api_.SetStake) return missing("SetStake");
+      api_.SetStake(static_cast<uint8_t>(o.stake));
+    }
+    if (options & FABRIC_AMBER_MPU5_OPTION_PRIZE) {
+      if (!api_.SetPrize) return missing("SetPrize");
+      api_.SetPrize(static_cast<uint8_t>(o.prize));
+    }
+    if (options & FABRIC_AMBER_MPU5_OPTION_PERCENTAGE) {
+      if (!api_.SetPercent) return missing("SetPercent");
+      api_.SetPercent(static_cast<uint8_t>(o.percentage));
+    }
+    amber_trace::Write(std::string(phase) +
+                       ": MPU5 configuration applied before reset; Fabric result=0");
+    return FABRIC_OK;
+  }
   FabricResult apply_configuration(const char *phase) {
+    if (mpu5_)
+      return apply_mpu5_configuration(phase);
     const std::string prefix = std::string(phase) + ": ";
-    if (config_.flags & FABRIC_AMBER_CONFIGURE_REELS) {
+    if (system6_config_.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_REELS) {
       if (!api_.SetSteps || !api_.SetOptoInvert || !api_.SetOptoStart ||
           !api_.SetOptoEnd) {
         return unsupported(phase,
@@ -559,8 +674,8 @@ private:
                                path_ + "'");
       }
       for (uint32_t i = 0; i < FABRIC_AMBER_MAX_REELS; ++i)
-        if (config_.reels.apply_mask & (1u << i)) {
-          const auto &r = config_.reels.reels[i];
+        if (system6_config_.reels.apply_mask & (1u << i)) {
+          const auto &r = system6_config_.reels.reels[i];
           if (r.steps > 255 || r.opto_start > 255 || r.opto_end > 255 ||
               r.opto_invert > 255) {
             return unsupported(
@@ -584,24 +699,27 @@ private:
                    "; result=success");
         }
       amber_trace::Write(prefix + "reels applied mask=" +
-                         std::to_string(config_.reels.apply_mask));
+                         std::to_string(system6_config_.reels.apply_mask));
     }
-    if (config_.flags & FABRIC_AMBER_CONFIGURE_COINS) {
-      api_.SetCommStyle(static_cast<uint8_t>(config_.coins.coin_communication_style));
-      api_.SetCommInvert(static_cast<uint8_t>(config_.coins.coin_communication_invert));
-      api_.SetCycles(config_.coins.coin_pulse_cycles);
-      api_.SetEDCEnable(static_cast<uint8_t>(config_.coins.coin_edc_enabled));
+    if (system6_config_.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_COINS) {
+      if (!api_.SetCommStyle || !api_.SetCommInvert || !api_.SetCycles ||
+          !api_.SetEDCEnable || !api_.SetCoinEnable || !api_.SetCoinValue)
+        return unsupported(phase, "one or more coin configuration exports are missing; DLL='" + path_ + "'");
+      api_.SetCommStyle(static_cast<uint8_t>(system6_config_.coins.coin_communication_style));
+      api_.SetCommInvert(static_cast<uint8_t>(system6_config_.coins.coin_communication_invert));
+      api_.SetCycles(system6_config_.coins.coin_pulse_cycles);
+      api_.SetEDCEnable(static_cast<uint8_t>(system6_config_.coins.coin_edc_enabled));
       if (coin_configuration_diagnostic_count_ < 64) {
         emit("AmberCoinMechanismConfigured",
-             "style=" + std::to_string(config_.coins.coin_communication_style) +
-                 "; invert=" + std::to_string(config_.coins.coin_communication_invert) +
-                 "; cycles=" + std::to_string(config_.coins.coin_pulse_cycles) +
-                 "; edc=" + std::to_string(config_.coins.coin_edc_enabled));
+             "style=" + std::to_string(system6_config_.coins.coin_communication_style) +
+                 "; invert=" + std::to_string(system6_config_.coins.coin_communication_invert) +
+                 "; cycles=" + std::to_string(system6_config_.coins.coin_pulse_cycles) +
+                 "; edc=" + std::to_string(system6_config_.coins.coin_edc_enabled));
         ++coin_configuration_diagnostic_count_;
       }
       for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_CHANNELS; ++i)
-        if (config_.coins.channel_apply_mask & (1u << i)) {
-          const auto &c = config_.coins.channels[i];
+        if (system6_config_.coins.channel_apply_mask & (1u << i)) {
+          const auto &c = system6_config_.coins.channels[i];
           if (c.value > 255 || c.enabled > 255 || c.lockout_invert > 255) {
             return unsupported(phase,
                                "coin channel value exceeds 8-bit ABI; index=" +
@@ -625,14 +743,14 @@ private:
             ++coin_configuration_diagnostic_count_;
           }
         }
-      if (config_.coins.route_apply_mask &&
+      if (system6_config_.coins.route_apply_mask &&
           (!api_.SetEnable || !api_.SetCounterIn || !api_.SetCounterOut ||
            !api_.SetPortIndex || !api_.SetCoin || !api_.SetLevel ||
            !api_.SetFullLevel))
         return unsupported(phase, "one or more coin-route exports are missing");
       for (uint32_t i = 0; i < FABRIC_AMBER_MAX_COIN_ROUTES; ++i)
-        if (config_.coins.route_apply_mask & (1u << i)) {
-          const auto &r = config_.coins.routes[i];
+        if (system6_config_.coins.route_apply_mask & (1u << i)) {
+          const auto &r = system6_config_.coins.routes[i];
           if (r.enabled > 255 || r.port_index > 255 || r.coin_code > 255 ||
               r.level > 255 || r.full_level > 255)
             return unsupported(phase,
@@ -648,21 +766,21 @@ private:
           api_.SetFullLevel(index, static_cast<uint8_t>(r.full_level));
         }
       amber_trace::Write(prefix + "coin channels applied mask=" +
-                         std::to_string(config_.coins.channel_apply_mask) +
+                         std::to_string(system6_config_.coins.channel_apply_mask) +
                          "; routes applied mask=" +
-                         std::to_string(config_.coins.route_apply_mask));
+                         std::to_string(system6_config_.coins.route_apply_mask));
     }
-    if (config_.flags & FABRIC_AMBER_CONFIGURE_PERCENTAGE) {
+    if (system6_config_.flags & FABRIC_AMBER_SYSTEM6_CONFIGURE_PERCENTAGE) {
       if (!api_.SetPercent) {
         return unsupported(phase,
                            "missing export 'SetPercent'; DLL='" + path_ + "'");
       }
-      api_.SetPercent(static_cast<uint8_t>(config_.percentage_switch));
+      api_.SetPercent(static_cast<uint8_t>(system6_config_.percentage_switch));
       emit("AmberConfigurePercentage",
-           "raw_value=" + std::to_string(config_.percentage_switch) +
+           "raw_value=" + std::to_string(system6_config_.percentage_switch) +
                "; result=success");
       amber_trace::Write(prefix + "percentage applied value=" +
-                         std::to_string(config_.percentage_switch));
+                         std::to_string(system6_config_.percentage_switch));
     }
     amber_trace::Write(prefix + "Fabric result=0");
     return FABRIC_OK;
@@ -707,7 +825,8 @@ private:
   std::unique_ptr<AmberDynamicLibrary> library_;
   ProductionAmberApi api_{};
   std::vector<std::string> program_, sound_;
-  FabricAmberConfigurationV2 config_{};
+  FabricAmberSystem6ConfigurationV2 system6_config_{};
+  FabricAmberMpu5ConfigurationV1 mpu5_config_{};
   std::set<uint8_t> asserted_;
   std::set<uint16_t> asserted_coins_;
   std::string error_, path_;
@@ -725,6 +844,7 @@ private:
   std::array<int32_t, 8> previous_reels_{};
   std::array<uint16_t, 16> previous_alpha_{};
   bool started_ = false, stopped_ = false, has_previous_snapshot_ = false;
+  bool mpu5_ = false;
   FabricResult shutdown_result_ = FABRIC_OK;
   FabricDiagnosticCallback diagnostic_ = nullptr;
   void *diagnostic_user_data_ = nullptr;
@@ -750,43 +870,71 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
                           std::string &error) noexcept {
   try {
     ProductionAmberApi a{};
+    const bool mpu5 = std::strcmp(request.machine_identifier,
+                                  "barcrest-mpu5") == 0;
 #define REQ(n)                                                                 \
   if (!required(*library, a.n, #n, request.backend_path, error))               \
   return FABRIC_NOT_SUPPORTED
     REQ(Initialise);
     REQ(Shutdown);
-    REQ(Reset);
     REQ(Run);
     REQ(LoadROM);
     REQ(GetOutputSnapshotSize);
     REQ(GetOutputSnapshot);
     REQ(TurnSwitchOn);
     REQ(TurnSwitchOff);
-    REQ(CoinIn);
-    REQ(SetCommStyle);
-    REQ(SetCommInvert);
-    REQ(SetCycles);
-    REQ(SetEDCEnable);
-    REQ(SetCoinValue);
-    REQ(SetCoinEnable);
-    REQ(SetLockoutInvert);
 #undef REQ
+    if (mpu5) {
+      if (!required(*library, a.ResetMpu5, "Reset", request.backend_path, error) ||
+          !required(*library, a.CoinInMpu5, "CoinIn", request.backend_path, error))
+        return FABRIC_NOT_SUPPORTED;
+    } else {
+#define SYSREQ(n) if (!required(*library, a.n, #n, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
+      SYSREQ(Reset); SYSREQ(CoinIn); SYSREQ(SetCommStyle); SYSREQ(SetCommInvert);
+      SYSREQ(SetCycles); SYSREQ(SetEDCEnable); SYSREQ(SetCoinValue);
+      SYSREQ(SetCoinEnable); SYSREQ(SetLockoutInvert);
+#undef SYSREQ
+    }
 #define OPT(n) a.n = resolve<decltype(a.n)>(*library, #n)
     OPT(LoadSoundROM);
     OPT(GetAudioFormat);
     OPT(FillAudioFrames);
-    OPT(SetOptoInvert);
-    OPT(SetOptoStart);
-    OPT(SetOptoEnd);
-    OPT(SetSteps);
-    OPT(SetEnable);
-    OPT(SetCounterIn);
-    OPT(SetCounterOut);
-    OPT(SetPortIndex);
-    OPT(SetCoin);
-    OPT(SetLevel);
-    OPT(SetFullLevel);
-    OPT(SetPercent);
+    if (!mpu5) {
+      OPT(SetOptoInvert); OPT(SetOptoStart); OPT(SetOptoEnd); OPT(SetSteps);
+      OPT(SetCommStyle); OPT(SetCommInvert); OPT(SetCycles); OPT(SetEDCEnable);
+      OPT(SetCoinValue); OPT(SetCoinEnable); OPT(SetLockoutInvert);
+    } else if (request.machine_configuration_size) {
+      const auto &configuration =
+          *static_cast<const FabricAmberMpu5ConfigurationV1 *>(
+              request.machine_configuration);
+      if (configuration.flags & FABRIC_AMBER_MPU5_CONFIGURE_REELS) {
+        OPT(SetOptoInvert); OPT(SetOptoStart); OPT(SetOptoEnd); OPT(SetSteps);
+      }
+      if (configuration.flags & FABRIC_AMBER_MPU5_CONFIGURE_COINS) {
+        OPT(SetCommStyle); OPT(SetCommInvert); OPT(SetCycles); OPT(SetEDCEnable);
+        OPT(SetCoinValue); OPT(SetCoinEnable); OPT(SetLockoutInvert);
+      }
+      if (configuration.flags & FABRIC_AMBER_MPU5_CONFIGURE_OPTIONS) {
+        const uint32_t mask = configuration.options.apply_mask;
+        if (mask & FABRIC_AMBER_MPU5_OPTION_DIPS) OPT(SetDIP);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_STAKE) OPT(SetStake);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_PRIZE) OPT(SetPrize);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_PERCENTAGE) OPT(SetPercent);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_CHARACTERISER_ADDRESS)
+          OPT(SetCharacteriserAddress);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_PIC_MODE) OPT(SetPICMode);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_SEC_FITTED) OPT(SetSECFitted);
+        if (mask & FABRIC_AMBER_MPU5_OPTION_HOPPER_TYPE) OPT(SetHopperType);
+        if (mask & (FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_0 |
+                    FABRIC_AMBER_MPU5_OPTION_REEL_JUMPER_1))
+          OPT(SetReelJumperProfile);
+      }
+    }
+    if (!mpu5) {
+      OPT(SetEnable); OPT(SetCounterIn); OPT(SetCounterOut); OPT(SetPortIndex);
+      OPT(SetCoin); OPT(SetLevel); OPT(SetFullLevel);
+      OPT(SetPercent);
+    }
 #undef OPT
     std::vector<std::pair<uint32_t, std::string>> p, s;
     if (request.rom_resource_count) {
@@ -811,10 +959,12 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
       program.push_back(std::move(v.second));
     for (auto &v : s)
       sound.push_back(std::move(v.second));
-    const auto *config = request.machine_configuration_size
-                             ? static_cast<const FabricAmberConfigurationV2 *>(
-                                   request.machine_configuration)
-                             : nullptr;
+    const auto *system6_config = !mpu5 && request.machine_configuration_size
+        ? static_cast<const FabricAmberSystem6ConfigurationV2 *>(
+              request.machine_configuration) : nullptr;
+    const auto *mpu5_config = mpu5 && request.machine_configuration_size
+        ? static_cast<const FabricAmberMpu5ConfigurationV1 *>(
+              request.machine_configuration) : nullptr;
     amber_trace::Write("selected for DLL='" +
                        std::string(request.backend_path) + "'");
     if (request.diagnostic_callback) {
@@ -829,7 +979,9 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     }
     out = std::make_unique<ProductionAmberInstance>(std::move(library), a,
                                            std::move(program), std::move(sound),
-                                           config, request.backend_path,
+                                           system6_config, mpu5_config,
+                                           request.backend_path,
+                                           mpu5,
                                            request.diagnostic_callback,
                                            request.diagnostic_user_data);
     return FABRIC_OK;

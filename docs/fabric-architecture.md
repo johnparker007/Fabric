@@ -32,3 +32,19 @@ The following checks remain manual and must not be inferred from cross-platform 
 5. Verify missing-DLL and missing-export diagnostics.
 6. Verify unloading and partial-startup cleanup.
 7. Confirm no separate bridge DLL or emulator-core DLL is built.
+
+### Amber production families
+
+`amber` dispatches by exact machine identifier: `jpm-system6` selects the System 6
+ABI (8,000 cycles/ms), while `barcrest-mpu5` selects the separately typed MPU5 ABI
+(16,000 cycles/ms). Provider paths are explicit and absolute; filenames do not affect
+selection. Snapshot and audio normalization are shared after platform-specific ABI
+calls and output-shape validation.
+
+Amber configuration is likewise dispatched by machine identifier. System 6 consumes
+only `FabricAmberSystem6ConfigurationV2`; MPU5 consumes only
+`FabricAmberMpu5ConfigurationV1`; either accepts no blob. MPU5 configuration setters
+are resolved per requested section and applied before the startup reset and before every explicit
+reset. The MPU5 contract includes the source-confirmed general machine options; only
+specialist service controls and detailed per-hopper edit-page configuration remain
+outside the current public configuration.
