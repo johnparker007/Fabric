@@ -18,7 +18,8 @@ a handled rejection rather than a transport or session failure.
 ## Machine-specific configuration
 
 Configuration is selected strictly from `request.machine_identifier`. `jpm-system6`
-accepts only the 648-byte `FabricAmberSystem6ConfigurationV2`; `barcrest-mpu5`
+accepts only the 648-byte `FabricAmberSystem6ConfigurationV2`; `barcrest-mpu3`
+accepts only the 48-byte `FabricAmberMpu3Config`; `barcrest-mpu5`
 accepts only the 404-byte `FabricAmberMpu5ConfigurationV1` (magic `0x354D4146`,
 version 1). A launch with no configuration is valid for either machine. Fabric does
 not inspect size or magic to select a format and does not fall back between formats.
@@ -84,7 +85,7 @@ listed in `fabric-architecture.md`.
 ## Production platform selection
 
 The public backend identifier remains `amber`. Production loading supports the exact
-machine identifiers `jpm-system6` and `barcrest-mpu5`; the identifier, never the DLL
+machine identifiers `jpm-system6`, `barcrest-mpu3`, and `barcrest-mpu5`; the identifier, never the DLL
 filename, selects the native ABI adapter. The frontend must provide an absolute provider
 DLL path. Fabric neither searches for nor substitutes providers.
 

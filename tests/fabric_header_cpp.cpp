@@ -1,5 +1,10 @@
 #include "fabric/fabric.h"
 #include "fabric/fabric_amber.h"
+#include <cstddef>
+static_assert(sizeof(FabricAmberMpu3ReelConfig) == 4);
+static_assert(sizeof(FabricAmberMpu3Config) == 48);
+static_assert(offsetof(FabricAmberMpu3Config, reels) == 16);
+static_assert(offsetof(FabricAmberMpu3Config, dips) == 32);
 #include <type_traits>
 static_assert(std::is_standard_layout<FabricMachineSnapshot>::value, "C ABI snapshot");
 static_assert(std::is_standard_layout<FabricRomResource>::value, "C ABI resource");

@@ -41,7 +41,7 @@ T resolve(AmberDynamicLibrary &library, const char *name) {
 
 
 
-enum class AmberMachine { System6, Mpu5, Epoch };
+enum class AmberMachine { System6, Mpu3, Mpu5, Epoch };
 
 class ProductionAmberInstance final : public FabricBackendInstance {
 public:
@@ -51,6 +51,7 @@ public:
                  const FabricAmberSystem6ConfigurationV2 *system6_configuration,
                  const FabricAmberMpu5ConfigurationV1 *mpu5_configuration,
                  const FabricAmberEpochConfigurationV1 *epoch_configuration,
+                 const FabricAmberMpu3Config *mpu3_configuration,
                  std::string path, AmberMachine machine, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
@@ -62,15 +63,17 @@ public:
       mpu5_config_ = *mpu5_configuration;
     if (epoch_configuration)
       epoch_config_ = *epoch_configuration;
+    if (mpu3_configuration)
+      mpu3_config_ = *mpu3_configuration;
   }
   ~ProductionAmberInstance() override {
     if (started_ && !stopped_)
-      api_.Shutdown();
+      machine_ == AmberMachine::Mpu3 ? api_.Mpu3Shutdown() : (void)api_.Shutdown();
   }
 
   FabricResult initialise() noexcept override {
     emit("AmberInitialiseBegin", "result=pending");
-    const uint8_t native = api_.Initialise();
+    const uint8_t native = machine_ == AmberMachine::Mpu3 ? api_.Mpu3Initialise() : api_.Initialise();
     emit("AmberInitialiseEnd", "native_return=" + std::to_string(native) +
                                    "; result=" +
                                    (native ? "success" : "failure"));
@@ -81,7 +84,8 @@ public:
     if (machine_ == AmberMachine::Epoch)
       api_.SetFlashROMMode(static_cast<uint8_t>(epoch_config_.flash_rom_mode));
     if (!load_roms(api_.LoadROM, program_, "program"))
-      return FABRIC_NOT_FOUND;
+      return machine_ == AmberMachine::Mpu3 ? FABRIC_BACKEND_ERROR
+                                             : FABRIC_NOT_FOUND;
     if (!sound_.empty() && !load_roms(api_.LoadSoundROM, sound_, "sound"))
       return api_.LoadSoundROM ? FABRIC_NOT_FOUND : FABRIC_NOT_SUPPORTED;
     /* The production core may clear all machine configuration in Reset.  Use
@@ -95,7 +99,9 @@ public:
   }
   FabricResult reset() noexcept override {
     emit("AmberResetBegin", "result=pending");
-    if (machine_ == AmberMachine::Mpu5) {
+    if (machine_ == AmberMachine::Mpu3) {
+      if (!api_.Mpu3Reset(0, 0, 0)) return fail("Reset", "Amber MPU3 return=0; DLL='" + path_ + "'");
+    } else if (machine_ == AmberMachine::Mpu5) {
       const FabricResult configured = apply_mpu5_configuration("Pre-reset configuration");
       if (configured != FABRIC_OK) return configured;
       if (!api_.ResetMpu5()) return fail("Reset", "Amber return=0; machine='barcrest-mpu5'; DLL='" + path_ + "'");
@@ -110,7 +116,8 @@ public:
     if (reset_trace_count_ < 8)
       amber_trace::Write("Reset: native reset completed");
     if (machine_ != AmberMachine::Mpu5) {
-      const FabricResult configured = machine_ == AmberMachine::Epoch
+      const FabricResult configured = machine_ == AmberMachine::Mpu3
+          ? apply_mpu3_configuration() : machine_ == AmberMachine::Epoch
           ? apply_epoch_configuration("Post-reset configuration")
           : apply_configuration("Reset configuration");
       if (configured != FABRIC_OK)
@@ -124,7 +131,8 @@ public:
   }
   FabricResult advance(uint64_t ns) noexcept override {
     constexpr uint64_t tick_ns = UINT64_C(1000000);
-    const uint32_t request = machine_ == AmberMachine::System6 ? 8000u : 16000u;
+    const uint32_t request = machine_ == AmberMachine::Mpu3 ? 675u :
+        (machine_ == AmberMachine::System6 ? 8000u : 16000u);
     constexpr uint64_t maximum_catch_up = 3;
     const uint64_t whole_ticks = ns / tick_ns;
     const uint64_t combined_remainder = remainder_ + ns % tick_ns;
@@ -136,7 +144,8 @@ public:
     const uint64_t executed_ticks =
         std::min<uint64_t>(available_ticks, maximum_catch_up);
     for (uint64_t tick = 0; tick < executed_ticks; ++tick) {
-      const int32_t native = api_.Run(request);
+      const int32_t native = machine_ == AmberMachine::Mpu3
+          ? api_.Mpu3Run(static_cast<INT32>(request)) : api_.Run(request);
       if (audio_sample_rate_) {
         audio_frame_fraction_ += audio_sample_rate_;
         const uint64_t generated = audio_frame_fraction_ / 1000u;
@@ -184,7 +193,9 @@ public:
     if (stopped_)
       return shutdown_result_;
     stopped_ = true;
-    if (started_ && !api_.Shutdown())
+    if (started_ && machine_ == AmberMachine::Mpu3) {
+      api_.Mpu3Shutdown();
+    } else if (started_ && !api_.Shutdown())
       return shutdown_result_ =
                  fail("Shutdown", "Amber return=0; DLL='" + path_ + "'");
     started_ = false;
@@ -198,6 +209,10 @@ public:
   }
   FabricResult submit_input(const FabricInput &input) noexcept override {
     if (input.kind == FABRIC_INPUT_COIN) {
+      if (machine_ == AmberMachine::Mpu3) {
+        (input.active ? api_.TurnSwitchOn : api_.TurnSwitchOff)(input.coin_channel);
+        return ok();
+      }
       if (input.coin_channel > 5)
         return invalid("Amber coin channel must be in the range 0..5");
       if (input.coin_value > 12)
@@ -231,7 +246,10 @@ public:
       return invalid(
           "production Amber switch index must be in the range 0..255");
     const uint8_t index = static_cast<uint8_t>(input.numerical_index);
-    if (input.active) {
+    if (machine_ == AmberMachine::Mpu3) {
+      (input.active ? api_.TurnSwitchOn : api_.TurnSwitchOff)(index);
+      if (input.active) asserted_.insert(index); else asserted_.erase(index);
+    } else if (input.active) {
       api_.TurnSwitchOn(index);
       asserted_.insert(index);
     } else {
@@ -267,6 +285,10 @@ public:
                       "; DLL='" + path_ + "'");
     bool invalid_counts = false;
     switch (machine_) {
+    case AmberMachine::Mpu3:
+      invalid_counts = source.ReelCount != 4 || source.AlphaSegmentedDisplayCount != 1 ||
+          source.AlphaDotDisplayCount != 0 || source.LedDisplayCount > PA2_NUM_LED_DISPLAYS;
+      break;
     case AmberMachine::Mpu5:
       invalid_counts = source.MatrixLampCount != 320 || source.ReelCount != 8 ||
           source.AlphaSegmentedDisplayCount > PA2_NUM_ALPHA_DISPLAYS || source.LedDisplayCount > 40;
@@ -296,7 +318,7 @@ public:
                       "; LEDs=" + std::to_string(source.LedCount));
     out.lamp_count = source.MatrixLampCount;
     out.reel_count = source.ReelCount;
-    out.character_display_count = machine_ == AmberMachine::Mpu5 ? source.AlphaSegmentedDisplayCount : 1;
+    out.character_display_count = (machine_ == AmberMachine::Mpu5 || machine_ == AmberMachine::Mpu3) ? source.AlphaSegmentedDisplayCount : 1;
     out.segment_display_count = machine_ == AmberMachine::System6 ? 16 : source.LedDisplayCount;
     if (out.lamp_capacity < out.lamp_count ||
         out.reel_capacity < out.reel_count ||
@@ -405,7 +427,7 @@ public:
           alpha_changed = true;
         previous_alpha_[i] = source.AlphaSegmented[0].Segments[i];
       }
-      for (uint32_t i = 0; i < 16; ++i)
+      for (uint32_t i = 0; i < out.segment_display_count; ++i)
         if (out.segment_displays[i].segment_masks[0])
           ++nonzero_displays;
       amber_trace::Write(
@@ -542,6 +564,19 @@ public:
   std::string last_error() const noexcept override { return error_; }
 
 private:
+  FabricResult apply_mpu3_configuration() {
+    for (uint8_t i = 0; i < FABRIC_AMBER_MPU3_REEL_COUNT; ++i) {
+      const auto &r = mpu3_config_.reels[i];
+      api_.SetSteps(i, r.steps);
+      api_.SetOptoStart(i, r.opto_start);
+      api_.SetOptoEnd(i, r.opto_end);
+      api_.SetOptoInvert(i, r.opto_invert);
+    }
+    for (uint8_t i = 0; i < FABRIC_AMBER_MPU3_DIP_COUNT; ++i)
+      if (!api_.Mpu3SetDIP(i, mpu3_config_.dips[i] != 0))
+        return fail("MPU3 DIP configuration", "native setter returned 0");
+    return FABRIC_OK;
+  }
   void emit(const std::string &operation, const std::string &metadata) noexcept {
     const std::string message = "[Fabric]\ncategory=amber.production\noperation=" +
                                 operation + "\n" + metadata;
@@ -584,9 +619,21 @@ private:
                        "; Amber return=" + std::to_string(native) +
                        (native ? "; Fabric result=0" : "; Fabric result=3"));
     if (!native) {
-      error_ = std::string("production Amber adapter: Load ") + role +
-               " ROMs failed: Amber return=0; slots=" +
-               std::to_string(paths.size()) + "; DLL='" + path_ + "'";
+      if (machine_ == AmberMachine::Mpu3) {
+        std::ostringstream detail;
+        detail << "production Amber adapter: Load " << role
+               << " ROMs failed: machine=barcrest-mpu3; rom_count="
+               << paths.size() << "; native_return=" << native;
+        for (size_t i = 0; i < paths.size(); ++i)
+          detail << "; slot" << i << "="
+                 << std::filesystem::path(paths[i]).filename().string();
+        detail << "; DLL='" << path_ << "'";
+        error_ = detail.str();
+      } else {
+        error_ = std::string("production Amber adapter: Load ") + role +
+                 " ROMs failed: Amber return=0; slots=" +
+                 std::to_string(paths.size()) + "; DLL='" + path_ + "'";
+      }
       return false;
     }
     return true;
@@ -847,7 +894,9 @@ private:
     return FABRIC_OK;
   }
   void release_inputs() {
-    if (started_ && !stopped_)
+    if (started_ && !stopped_ && machine_ == AmberMachine::Mpu3)
+      for (uint8_t i : asserted_) api_.TurnSwitchOff(i);
+    else if (started_ && !stopped_)
       for (uint8_t i : asserted_)
         api_.TurnSwitchOff(i);
     asserted_.clear();
@@ -889,6 +938,7 @@ private:
   FabricAmberSystem6ConfigurationV2 system6_config_{};
   FabricAmberMpu5ConfigurationV1 mpu5_config_{};
   FabricAmberEpochConfigurationV1 epoch_config_{};
+  FabricAmberMpu3Config mpu3_config_{};
   std::set<uint8_t> asserted_;
   std::set<uint16_t> asserted_coins_;
   std::string error_, path_;
@@ -932,24 +982,34 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
                           std::string &error) noexcept {
   try {
     ProductionAmberApi a{};
-    const AmberMachine machine = std::strcmp(request.machine_identifier, "barcrest-mpu5") == 0
+    const AmberMachine machine = std::strcmp(request.machine_identifier, "barcrest-mpu3") == 0
+        ? AmberMachine::Mpu3 : (std::strcmp(request.machine_identifier, "barcrest-mpu5") == 0
         ? AmberMachine::Mpu5 : (std::strcmp(request.machine_identifier, "maygay-epoch") == 0
-        ? AmberMachine::Epoch : AmberMachine::System6);
+        ? AmberMachine::Epoch : AmberMachine::System6));
     const bool mpu5 = machine == AmberMachine::Mpu5;
     const bool epoch = machine == AmberMachine::Epoch;
+    const bool mpu3 = machine == AmberMachine::Mpu3;
 #define REQ(n)                                                                 \
   if (!required(*library, a.n, #n, request.backend_path, error))               \
   return FABRIC_NOT_SUPPORTED
-    REQ(Initialise);
-    REQ(Shutdown);
-    REQ(Run);
-    REQ(LoadROM);
-    REQ(GetOutputSnapshotSize);
-    REQ(GetOutputSnapshot);
-    REQ(TurnSwitchOn);
-    REQ(TurnSwitchOff);
+    if (!mpu3) {
+      REQ(Initialise); REQ(Shutdown); REQ(Run); REQ(LoadROM);
+      REQ(GetOutputSnapshotSize); REQ(GetOutputSnapshot);
+      REQ(TurnSwitchOn); REQ(TurnSwitchOff);
+    }
 #undef REQ
-    if (mpu5 || epoch) {
+    if (mpu3) {
+#define MPU3REQ(member, name) if (!required(*library, a.member, name, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
+      MPU3REQ(Mpu3Initialise, "Initialise"); MPU3REQ(Mpu3Shutdown, "Shutdown");
+      MPU3REQ(Mpu3Reset, "Reset"); MPU3REQ(Mpu3Run, "Run"); MPU3REQ(LoadROM, "LoadROM");
+      MPU3REQ(Mpu3SetDIP, "SetDIP");
+      MPU3REQ(GetOutputSnapshotSize, "GetOutputSnapshotSize");
+      MPU3REQ(GetOutputSnapshot, "GetOutputSnapshot");
+      MPU3REQ(TurnSwitchOn, "TurnSwitchOn"); MPU3REQ(TurnSwitchOff, "TurnSwitchOff");
+      MPU3REQ(SetSteps, "SetSteps"); MPU3REQ(SetOptoStart, "SetOptoStart");
+      MPU3REQ(SetOptoEnd, "SetOptoEnd"); MPU3REQ(SetOptoInvert, "SetOptoInvert");
+#undef MPU3REQ
+    } else if (mpu5 || epoch) {
       if (!required(*library, mpu5 ? a.ResetMpu5 : a.ResetEpoch, "Reset", request.backend_path, error) ||
           !required(*library, a.CoinInMpu5, "CoinIn", request.backend_path, error))
         return FABRIC_NOT_SUPPORTED;
@@ -963,9 +1023,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
 #undef SYSREQ
     }
 #define OPT(n) a.n = resolve<decltype(a.n)>(*library, #n)
-    OPT(LoadSoundROM);
-    OPT(GetAudioFormat);
-    OPT(FillAudioFrames);
+    OPT(LoadSoundROM); OPT(GetAudioFormat); OPT(FillAudioFrames);
     if (machine == AmberMachine::System6) {
       OPT(SetOptoInvert); OPT(SetOptoStart); OPT(SetOptoEnd); OPT(SetSteps);
       OPT(SetCommStyle); OPT(SetCommInvert); OPT(SetCycles); OPT(SetEDCEnable);
@@ -1041,6 +1099,8 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
               request.machine_configuration) : nullptr;
     const auto *epoch_config = epoch && request.machine_configuration_size
         ? static_cast<const FabricAmberEpochConfigurationV1 *>(request.machine_configuration) : nullptr;
+    const auto *mpu3_config = mpu3 && request.machine_configuration_size
+        ? static_cast<const FabricAmberMpu3Config *>(request.machine_configuration) : nullptr;
     amber_trace::Write("selected for DLL='" +
                        std::string(request.backend_path) + "'");
     if (request.diagnostic_callback) {
@@ -1056,6 +1116,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     out = std::make_unique<ProductionAmberInstance>(std::move(library), a,
                                            std::move(program), std::move(sound),
                                            system6_config, mpu5_config, epoch_config,
+                                           mpu3_config,
                                            request.backend_path,
                                            machine,
                                            request.diagnostic_callback,

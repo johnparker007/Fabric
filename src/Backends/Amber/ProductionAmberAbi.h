@@ -247,6 +247,17 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *SetFlashROMMode)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetReelExt)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetLockoutVal)(uint8_t, uint8_t) = nullptr;
+  /* MPU3 exports deliberately have their own exact ABI types. */
+  using Mpu3InitialiseFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)();
+  using Mpu3ShutdownFn = void (FABRIC_PRODUCTION_AMBER_CALL *)();
+  using Mpu3ResetFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(int, int, int);
+  using Mpu3RunFn = INT32 (FABRIC_PRODUCTION_AMBER_CALL *)(INT32);
+  using Mpu3SetDipFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(uint8_t, bool);
+  Mpu3InitialiseFn Mpu3Initialise = nullptr;
+  Mpu3ShutdownFn Mpu3Shutdown = nullptr;
+  Mpu3ResetFn Mpu3Reset = nullptr;
+  Mpu3RunFn Mpu3Run = nullptr;
+  Mpu3SetDipFn Mpu3SetDIP = nullptr;
 };
 #undef FABRIC_PRODUCTION_AMBER_CALL
 
