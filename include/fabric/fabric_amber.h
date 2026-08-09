@@ -94,4 +94,32 @@ typedef struct FabricAmberMpu5ConfigurationV1 {
   FabricAmberMpu5CoinConfigurationV1 coins;
   FabricAmberMpu5OptionsV1 options;
 } FabricAmberMpu5ConfigurationV1;
+
+/* Current Maygay Epoch configuration (magic spells "FAEP" in little endian). */
+#define FABRIC_AMBER_EPOCH_CONFIGURATION_MAGIC UINT32_C(0x50454146)
+#define FABRIC_AMBER_EPOCH_CONFIGURATION_VERSION_1 1u
+#define FABRIC_AMBER_EPOCH_CONFIGURE_REELS UINT32_C(1)
+#define FABRIC_AMBER_EPOCH_CONFIGURE_COINS UINT32_C(2)
+#define FABRIC_AMBER_EPOCH_CONFIGURE_OPTIONS UINT32_C(4)
+#define FABRIC_AMBER_EPOCH_CONFIGURE_REEL_EXT UINT32_C(8)
+#define FABRIC_AMBER_EPOCH_OPTION_DIPS UINT32_C(1)
+#define FABRIC_AMBER_EPOCH_OPTION_STAKE UINT32_C(2)
+#define FABRIC_AMBER_EPOCH_OPTION_PRIZE UINT32_C(4)
+#define FABRIC_AMBER_EPOCH_OPTION_PERCENTAGE UINT32_C(8)
+typedef struct FabricAmberEpochReelConfigV1 {
+  uint32_t reel_index, steps, opto_start, opto_end, opto_invert;
+} FabricAmberEpochReelConfigV1;
+typedef struct FabricAmberEpochCoinChannelConfigV1 {
+  uint32_t channel_index, enabled, value, lockout_value, lockout_invert;
+} FabricAmberEpochCoinChannelConfigV1;
+typedef struct FabricAmberEpochConfigurationV1 {
+  uint32_t magic, struct_size, version, flags;
+  uint32_t flash_rom_mode, reel_count, reel_apply_mask, reel_ext;
+  FabricAmberEpochReelConfigV1 reels[FABRIC_AMBER_MAX_REELS];
+  uint32_t communication_style, communication_invert, pulse_cycles, edc_enabled;
+  uint32_t coin_channel_count, coin_apply_mask;
+  FabricAmberEpochCoinChannelConfigV1 coins[FABRIC_AMBER_MAX_COIN_CHANNELS];
+  uint32_t options_apply_mask, dip_switch_bits, stake, prize, percentage;
+  uint32_t reserved[4];
+} FabricAmberEpochConfigurationV1;
 #endif

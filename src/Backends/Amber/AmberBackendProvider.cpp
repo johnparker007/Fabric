@@ -134,6 +134,38 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
       return malformed("has a System 6 percentage outside 0..15");
     return FABRIC_OK;
   }
+  if (machine == "maygay-epoch") {
+    if (request.machine_configuration_size != sizeof(FabricAmberEpochConfigurationV1))
+      return malformed("expected FabricAmberEpochConfigurationV1 (" +
+                       std::to_string(sizeof(FabricAmberEpochConfigurationV1)) +
+                       " bytes), received " + std::to_string(request.machine_configuration_size) + " bytes");
+    const auto &c = *static_cast<const FabricAmberEpochConfigurationV1 *>(request.machine_configuration);
+    constexpr uint32_t flags = FABRIC_AMBER_EPOCH_CONFIGURE_REELS |
+        FABRIC_AMBER_EPOCH_CONFIGURE_COINS | FABRIC_AMBER_EPOCH_CONFIGURE_OPTIONS |
+        FABRIC_AMBER_EPOCH_CONFIGURE_REEL_EXT;
+    if (c.magic != FABRIC_AMBER_EPOCH_CONFIGURATION_MAGIC || c.struct_size != sizeof(c) ||
+        c.version != FABRIC_AMBER_EPOCH_CONFIGURATION_VERSION_1 || (c.flags & ~flags) ||
+        c.flash_rom_mode > 1 || c.reel_count > 8 || c.coin_channel_count > 6 ||
+        (c.reel_apply_mask & ~UINT32_C(0xff)) || (c.coin_apply_mask & ~UINT32_C(0x3f)) ||
+        c.communication_invert > 1 || c.edc_enabled > 1 || c.reel_ext > 255 ||
+        (c.options_apply_mask & ~UINT32_C(15)) || (c.dip_switch_bits & ~UINT32_C(0xffff)) ||
+        c.stake > 255 || c.prize > 255 || c.percentage > 255 ||
+        c.reserved[0] || c.reserved[1] || c.reserved[2] || c.reserved[3])
+      return malformed("is not a valid FabricAmberEpochConfigurationV1");
+    for (uint32_t i = 0; i < 8; ++i) if (c.reel_apply_mask & (UINT32_C(1) << i)) {
+      const auto &v = c.reels[i];
+      if (i >= c.reel_count || v.reel_index != i || !v.steps || v.steps > 255 ||
+          v.opto_start > 255 || v.opto_end > 255 || v.opto_invert > 1)
+        return malformed("has an invalid Epoch reel entry");
+    }
+    for (uint32_t i = 0; i < 6; ++i) if (c.coin_apply_mask & (UINT32_C(1) << i)) {
+      const auto &v = c.coins[i];
+      if (i >= c.coin_channel_count || v.channel_index != i || v.enabled > 1 ||
+          v.value > 12 || v.lockout_value > 12 || v.lockout_invert > 1)
+        return malformed("has an invalid Epoch coin channel");
+    }
+    return FABRIC_OK;
+  }
   if (request.machine_configuration_size != sizeof(FabricAmberMpu5ConfigurationV1))
     return malformed("expected FabricAmberMpu5ConfigurationV1 (" +
                      std::to_string(sizeof(FabricAmberMpu5ConfigurationV1)) +
@@ -224,7 +256,8 @@ public:
                       std::string &error) noexcept override {
     try {
       const std::string machine = request.machine_identifier;
-      if (machine != "jpm-system6" && machine != "barcrest-mpu5") {
+      if (machine != "jpm-system6" && machine != "barcrest-mpu5" &&
+          machine != "maygay-epoch") {
         error = "Amber backend 'amber' does not support machine identifier '" +
                 machine + "'; provider DLL='" + request.backend_path + "'";
         return FABRIC_NOT_SUPPORTED;
