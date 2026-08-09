@@ -6,6 +6,26 @@
 #define FABRIC_AMBER_MAX_REELS 8u
 #define FABRIC_AMBER_MAX_COIN_CHANNELS 6u
 #define FABRIC_AMBER_MAX_COIN_ROUTES 8u
+#define FABRIC_AMBER_MPU3_REEL_COUNT 4u
+#define FABRIC_AMBER_MPU3_DIP_COUNT 16u
+#define FABRIC_AMBER_MPU3_CONFIGURATION_MAGIC UINT32_C(0x334D4146)
+#define FABRIC_AMBER_MPU3_CONFIGURATION_VERSION_1 1u
+
+typedef struct FabricAmberMpu3ReelConfig {
+  uint8_t steps;
+  uint8_t opto_start;
+  uint8_t opto_end;
+  uint8_t opto_invert;
+} FabricAmberMpu3ReelConfig;
+
+typedef struct FabricAmberMpu3Config {
+  uint32_t magic;
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t reel_count;
+  FabricAmberMpu3ReelConfig reels[FABRIC_AMBER_MPU3_REEL_COUNT];
+  uint8_t dips[FABRIC_AMBER_MPU3_DIP_COUNT];
+} FabricAmberMpu3Config;
 #define FABRIC_AMBER_SYSTEM6_REEL_CONFIGURATION_VERSION_1 1u
 #define FABRIC_AMBER_SYSTEM6_COIN_CONFIGURATION_VERSION_2 2u
 

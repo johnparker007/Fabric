@@ -99,7 +99,9 @@ typedef struct FabricRomResource {
   uint32_t role;
   uint32_t slot;
   const char *path;
-  uint64_t reserved[2];
+  /* Native load address for directly-addressed ROM backends. */
+  uint64_t load_address;
+  uint64_t reserved;
 } FabricRomResource;
 
 typedef struct FabricCapabilities {

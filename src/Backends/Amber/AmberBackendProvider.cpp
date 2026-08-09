@@ -45,6 +45,15 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
       error = "malformed typed ROM resource";
       return FABRIC_INVALID_ARGUMENT;
     }
+    if (resource.reserved) {
+      error = "ROM resource reserved field must be zero";
+      return FABRIC_INVALID_ARGUMENT;
+    }
+    if (std::string(request.machine_identifier) == "barcrest-mpu3" &&
+        (resource.role == FABRIC_ROM_ROLE_SOUND || resource.load_address > INT32_MAX)) {
+      error = "MPU3 accepts only directly-addressed program ROMs";
+      return FABRIC_INVALID_ARGUMENT;
+    }
     if (resource.role != FABRIC_ROM_ROLE_PROGRAM &&
         resource.role != FABRIC_ROM_ROLE_SOUND &&
         resource.role != FABRIC_ROM_ROLE_OTHER) {
@@ -81,6 +90,11 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
 
 FabricResult validate_configuration(const FabricLaunchRequest &request,
                                     std::string &error) {
+  if (!request.machine_configuration_size &&
+      std::string(request.machine_identifier) == "barcrest-mpu3") {
+    error = "Amber machine 'barcrest-mpu3' requires FabricAmberMpu3Config";
+    return FABRIC_INVALID_ARGUMENT;
+  }
   if (!request.machine_configuration_size)
     return FABRIC_OK;
   const std::string machine = request.machine_identifier;
@@ -91,6 +105,23 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
   };
   if (!request.machine_configuration)
     return malformed("is null");
+  if (machine == "barcrest-mpu3") {
+    if (request.machine_configuration_size != sizeof(FabricAmberMpu3Config))
+      return malformed("expected FabricAmberMpu3Config (" +
+          std::to_string(sizeof(FabricAmberMpu3Config)) + " bytes), received " +
+          std::to_string(request.machine_configuration_size) + " bytes");
+    const auto &c = *static_cast<const FabricAmberMpu3Config *>(request.machine_configuration);
+    if (c.magic != FABRIC_AMBER_MPU3_CONFIGURATION_MAGIC || c.struct_size != sizeof(c) ||
+        c.version != FABRIC_AMBER_MPU3_CONFIGURATION_VERSION_1 ||
+        c.reel_count != FABRIC_AMBER_MPU3_REEL_COUNT)
+      return malformed("is not a valid FabricAmberMpu3Config");
+    for (uint32_t i = 0; i < FABRIC_AMBER_MPU3_REEL_COUNT; ++i)
+      if (!c.reels[i].steps || c.reels[i].opto_invert > 1)
+        return malformed("has an invalid MPU3 reel entry");
+    for (uint32_t i = 0; i < FABRIC_AMBER_MPU3_DIP_COUNT; ++i)
+      if (c.dips[i] > 1) return malformed("has an invalid MPU3 DIP value");
+    return FABRIC_OK;
+  }
   if (machine == "jpm-system6") {
     if (request.machine_configuration_size !=
         sizeof(FabricAmberSystem6ConfigurationV2))
@@ -257,7 +288,7 @@ public:
     try {
       const std::string machine = request.machine_identifier;
       if (machine != "jpm-system6" && machine != "barcrest-mpu5" &&
-          machine != "maygay-epoch") {
+          machine != "maygay-epoch" && machine != "barcrest-mpu3") {
         error = "Amber backend 'amber' does not support machine identifier '" +
                 machine + "'; provider DLL='" + request.backend_path + "'";
         return FABRIC_NOT_SUPPORTED;
