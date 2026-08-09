@@ -96,7 +96,7 @@ public:
       }
     } else if (!load_roms(api_.LoadROM, program_, "program"))
       return FABRIC_NOT_FOUND;
-    if (machine_ != AmberMachine::Mpu3 && !sound_.empty() && !load_roms(api_.LoadSoundROM, sound_, "sound"))
+    if (!sound_.empty() && !load_roms(api_.LoadSoundROM, sound_, "sound"))
       return api_.LoadSoundROM ? FABRIC_NOT_FOUND : FABRIC_NOT_SUPPORTED;
     /* The production core may clear all machine configuration in Reset.  Use
      * the one reset path for startup and every later reset so configuration
@@ -220,7 +220,7 @@ public:
   FabricResult submit_input(const FabricInput &input) noexcept override {
     if (input.kind == FABRIC_INPUT_COIN) {
       if (machine_ == AmberMachine::Mpu3) {
-        api_.Mpu3Switch(input.coin_channel, input.active ? 1 : 0);
+        (input.active ? api_.TurnSwitchOn : api_.TurnSwitchOff)(input.coin_channel);
         return ok();
       }
       if (input.coin_channel > 5)
@@ -257,7 +257,7 @@ public:
           "production Amber switch index must be in the range 0..255");
     const uint8_t index = static_cast<uint8_t>(input.numerical_index);
     if (machine_ == AmberMachine::Mpu3) {
-      api_.Mpu3Switch(index, input.active ? 1 : 0);
+      (input.active ? api_.TurnSwitchOn : api_.TurnSwitchOff)(index);
       if (input.active) asserted_.insert(index); else asserted_.erase(index);
     } else if (input.active) {
       api_.TurnSwitchOn(index);
@@ -273,21 +273,19 @@ public:
                 FABRIC_CAPABILITY_REELS | FABRIC_CAPABILITY_CHARACTER_DISPLAYS |
                 FABRIC_CAPABILITY_SEGMENT_DISPLAYS;
     out.flags |= FABRIC_CAPABILITY_COIN_INPUT;
-    if (machine_ != AmberMachine::Mpu3 && api_.GetAudioFormat && api_.FillAudioFrames)
+    if (api_.GetAudioFormat && api_.FillAudioFrames)
       out.flags |= FABRIC_CAPABILITY_AUDIO;
     return ok();
   }
   FabricResult snapshot(FabricMachineSnapshot &out) noexcept override {
     PA2_OutputSnapshot source{};
-    const uint32_t expected = machine_ == AmberMachine::Mpu3 ? sizeof(source) : api_.GetOutputSnapshotSize();
+    const uint32_t expected = api_.GetOutputSnapshotSize();
     if (expected != sizeof(source))
       return fail("GetOutputSnapshotSize",
                   "returned size=" + std::to_string(expected) +
                       "; expected size=" + std::to_string(sizeof(source)) +
                       "; DLL='" + path_ + "'");
-    uint32_t returned = sizeof(source);
-    if (machine_ == AmberMachine::Mpu3) api_.Mpu3GetOutputs(&source);
-    else returned = api_.GetOutputSnapshot(&source, sizeof(source));
+    const uint32_t returned = api_.GetOutputSnapshot(&source, sizeof(source));
     if (returned != sizeof(source) || source.SizeBytes != sizeof(source) ||
         source.Version != PA2_OUTPUT_SNAPSHOT_VERSION)
       return fail("GetOutputSnapshot",
@@ -579,9 +577,10 @@ private:
   FabricResult apply_mpu3_configuration() {
     for (uint8_t i = 0; i < FABRIC_AMBER_MPU3_REEL_COUNT; ++i) {
       const auto &r = mpu3_config_.reels[i];
-      if (!api_.Mpu3SetReel(i, r.steps) ||
-          !api_.Mpu3SetReelOpto(i, r.opto_start, r.opto_end, r.opto_invert != 0))
-        return fail("MPU3 reel configuration", "native setter returned 0");
+      api_.SetSteps(i, r.steps);
+      api_.SetOptoStart(i, r.opto_start);
+      api_.SetOptoEnd(i, r.opto_end);
+      api_.SetOptoInvert(i, r.opto_invert);
     }
     for (uint8_t i = 0; i < FABRIC_AMBER_MPU3_DIP_COUNT; ++i)
       if (!api_.Mpu3SetDIP(i, mpu3_config_.dips[i] != 0))
@@ -894,7 +893,7 @@ private:
   }
   void release_inputs() {
     if (started_ && !stopped_ && machine_ == AmberMachine::Mpu3)
-      for (uint8_t i : asserted_) api_.Mpu3Switch(i, 0);
+      for (uint8_t i : asserted_) api_.TurnSwitchOff(i);
     else if (started_ && !stopped_)
       for (uint8_t i : asserted_)
         api_.TurnSwitchOff(i);
@@ -1002,8 +1001,12 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
 #define MPU3REQ(member, name) if (!required(*library, a.member, name, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
       MPU3REQ(Mpu3Initialise, "Initialise"); MPU3REQ(Mpu3Shutdown, "Shutdown");
       MPU3REQ(Mpu3Reset, "Reset"); MPU3REQ(Mpu3Run, "Run"); MPU3REQ(Mpu3LoadROM, "LoadROM");
-      MPU3REQ(Mpu3SetReel, "SetReel"); MPU3REQ(Mpu3SetReelOpto, "SetReelOpto");
-      MPU3REQ(Mpu3SetDIP, "SetDIP"); MPU3REQ(Mpu3GetOutputs, "GetOutputs"); MPU3REQ(Mpu3Switch, "Switch");
+      MPU3REQ(Mpu3SetDIP, "SetDIP");
+      MPU3REQ(GetOutputSnapshotSize, "GetOutputSnapshotSize");
+      MPU3REQ(GetOutputSnapshot, "GetOutputSnapshot");
+      MPU3REQ(TurnSwitchOn, "TurnSwitchOn"); MPU3REQ(TurnSwitchOff, "TurnSwitchOff");
+      MPU3REQ(SetSteps, "SetSteps"); MPU3REQ(SetOptoStart, "SetOptoStart");
+      MPU3REQ(SetOptoEnd, "SetOptoEnd"); MPU3REQ(SetOptoInvert, "SetOptoInvert");
 #undef MPU3REQ
     } else if (mpu5 || epoch) {
       if (!required(*library, mpu5 ? a.ResetMpu5 : a.ResetEpoch, "Reset", request.backend_path, error) ||
@@ -1019,7 +1022,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
 #undef SYSREQ
     }
 #define OPT(n) a.n = resolve<decltype(a.n)>(*library, #n)
-    if (!mpu3) { OPT(LoadSoundROM); OPT(GetAudioFormat); OPT(FillAudioFrames); }
+    OPT(LoadSoundROM); OPT(GetAudioFormat); OPT(FillAudioFrames);
     if (machine == AmberMachine::System6) {
       OPT(SetOptoInvert); OPT(SetOptoStart); OPT(SetOptoEnd); OPT(SetSteps);
       OPT(SetCommStyle); OPT(SetCommInvert); OPT(SetCycles); OPT(SetEDCEnable);

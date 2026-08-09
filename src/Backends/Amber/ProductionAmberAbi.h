@@ -253,21 +253,13 @@ struct ProductionAmberApi {
   using Mpu3ResetFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(int, int, int);
   using Mpu3RunFn = INT32 (FABRIC_PRODUCTION_AMBER_CALL *)(INT32);
   using Mpu3LoadRomFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(uint8_t *, INT32, INT32);
-  using Mpu3SetReelFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(uint8_t, uint8_t);
-  using Mpu3SetReelOptoFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(uint8_t, uint8_t, uint8_t, bool);
   using Mpu3SetDipFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)(uint8_t, bool);
-  using Mpu3GetOutputsFn = void (FABRIC_PRODUCTION_AMBER_CALL *)(PA2_OutputSnapshot *);
-  using Mpu3SwitchFn = void (FABRIC_PRODUCTION_AMBER_CALL *)(int, int);
   Mpu3InitialiseFn Mpu3Initialise = nullptr;
   Mpu3ShutdownFn Mpu3Shutdown = nullptr;
   Mpu3ResetFn Mpu3Reset = nullptr;
   Mpu3RunFn Mpu3Run = nullptr;
   Mpu3LoadRomFn Mpu3LoadROM = nullptr;
-  Mpu3SetReelFn Mpu3SetReel = nullptr;
-  Mpu3SetReelOptoFn Mpu3SetReelOpto = nullptr;
   Mpu3SetDipFn Mpu3SetDIP = nullptr;
-  Mpu3GetOutputsFn Mpu3GetOutputs = nullptr;
-  Mpu3SwitchFn Mpu3Switch = nullptr;
 };
 #undef FABRIC_PRODUCTION_AMBER_CALL
 
