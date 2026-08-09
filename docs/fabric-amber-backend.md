@@ -107,3 +107,38 @@ current output/configuration ABI.
 Real provider validation remains a manual Windows integration step using the exact
 provider DLL and licensed ROM set. In particular, startup/configuration export names
 and reset success semantics must be confirmed against the production MPU5 build.
+
+## Maygay Epoch
+
+The `amber` provider also supports `maygay-epoch`. Epoch is selected explicitly (not
+as a System 6 fallback), executes `Run(16000)` per Fabric millisecond, uses the
+success-returning `uint8_t Reset(void)` ABI, and inserts coins with
+`CoinIn(0, channel, denomination)`.
+
+Epoch accepts up to four contiguous program slots and four contiguous SOUND slots.
+`FabricAmberEpochConfigurationV1` (magic `0x50454146`, version 1) contains the flash
+ROM mode, selected reel geometry, six-channel coin mechanism settings, 16 DIP bits,
+and stake/prize/percentage selectors. `SetFlashROMMode` is called after `Initialise`
+but before `LoadROM`; it is not repeated during reset. Flash mode permits the normal
+single slot-zero image workflow (the native core supports images through 4 MiB and
+may mirror data above 512 KiB into YMZ sound memory). Normal mode retains the native
+four-path, pair-interleaved ROM loader.
+
+Epoch startup is `Initialise`, flash-mode selection, program load, optional sound
+load, successful reset, then configuration. Every later Fabric reset also requires a
+successful native reset and reapplies configuration afterwards because Epoch reset
+clears DIP and runtime state. Fabric supplies no default reel geometry.
+
+The packed snapshot is validated for Epoch's 512 matrix lamps, 512 raw LEDs, eight
+reels, one 16-character segmented alpha, one dot alpha, 40 LED displays, one
+electronic mechanism, six meters, 16 DIPs, and two hoppers. Normalized output exposes
+512 lamps, eight reels, one character display, and the 40 native `LedDisplays` as
+segment displays; it never applies System 6's raw-LED conversion. Epoch's native
+16-character, five-column dot-alpha display is validated but is not yet representable
+by Fabric's public v3 snapshot and is therefore not published. The common audio path
+supports Epoch's reported 48 kHz stereo interleaved signed PCM16 format.
+
+Real-DLL validation is still required on Windows for export decoration/calling
+convention, ROM loading (including large flash mirroring), snapshot values, reset
+failure behavior, configuration effects, and sustained audio timing against the
+actual licensed Epoch provider.

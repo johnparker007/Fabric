@@ -561,6 +561,49 @@ int main() {
   CHECK(mpu_lamps[26].brightness == mpu_lamps[27].brightness);
   CHECK(FabricSessionShutdown(session) == FABRIC_OK);
   FabricDestroySession(session);
+  auto epoch = request(FAKE_PRODUCTION_AMBER_EPOCH_PATH);
+  std::strcpy(epoch.machine_identifier, "maygay-epoch");
+  const char *epoch_rom[] = {"epoch-flash.rom"};
+  epoch.rom_paths = epoch_rom; epoch.rom_path_count = 1;
+  FabricAmberEpochConfigurationV1 ec{};
+  ec.magic = FABRIC_AMBER_EPOCH_CONFIGURATION_MAGIC; ec.struct_size = sizeof(ec);
+  ec.version = FABRIC_AMBER_EPOCH_CONFIGURATION_VERSION_1;
+  ec.flags = FABRIC_AMBER_EPOCH_CONFIGURE_REELS | FABRIC_AMBER_EPOCH_CONFIGURE_COINS |
+             FABRIC_AMBER_EPOCH_CONFIGURE_OPTIONS;
+  ec.flash_rom_mode = 1; ec.reel_count = 1; ec.reel_apply_mask = 1;
+  ec.reels[0].reel_index = 0; ec.reels[0].steps = 96; ec.reels[0].opto_invert = 1;
+  ec.communication_style = 2; ec.communication_invert = 1; ec.pulse_cycles = 100;
+  ec.edc_enabled = 1; ec.coin_channel_count = 1; ec.coin_apply_mask = 1;
+  ec.coins[0].channel_index = 0; ec.coins[0].enabled = 1; ec.coins[0].value = 5;
+  ec.coins[0].lockout_value = 5; ec.coins[0].lockout_invert = 1;
+  ec.options_apply_mask = FABRIC_AMBER_EPOCH_OPTION_DIPS; ec.dip_switch_bits = 0xa55a;
+  epoch.machine_configuration = &ec; epoch.machine_configuration_size = sizeof(ec);
+  CHECK(FabricCreateSession(runtime, &epoch, &session) == FABRIC_OK);
+  CHECK(FabricSessionInitialise(session) == FABRIC_OK);
+  CHECK(FabricSessionAdvance(session, 1000000) == FABRIC_OK);
+  FabricLamp el[512]{}; FabricReel er[8]{}; FabricCharacterDisplay ea[1]{};
+  FabricSegmentDisplay es[40]{}; FabricMachineSnapshot ep{};
+  ep.struct_size=sizeof(ep); ep.struct_version=FABRIC_ABI_VERSION_CURRENT;
+  ep.lamps=el; ep.lamp_capacity=512; ep.reels=er; ep.reel_capacity=8;
+  ep.character_displays=ea; ep.character_display_capacity=1;
+  ep.segment_displays=es; ep.segment_display_capacity=40;
+  CHECK(FabricSessionGetSnapshot(session, &ep) == FABRIC_OK);
+  CHECK(ep.lamp_count == 512 && ep.reel_count == 8 && ep.character_display_count == 1 && ep.segment_display_count == 40);
+  CHECK(el[30].brightness == 1.0f && el[31].brightness == 16000.0f);
+  CHECK(es[1].segment_masks[0] == 1); /* LedDisplays, not raw Leds. */
+  FabricInput coin{}; coin.struct_size=sizeof(coin); coin.struct_version=FABRIC_ABI_VERSION_CURRENT;
+  coin.kind=FABRIC_INPUT_COIN; coin.active=1; coin.coin_channel=2; coin.coin_value=6;
+  CHECK(FabricSessionSubmitInput(session, &coin) == FABRIC_OK);
+  CHECK(FabricSessionReset(session) == FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session, &ep) == FABRIC_OK);
+  CHECK(el[29].brightness == 42330.0f); /* DIP configuration was reapplied post-reset. */
+  CHECK(FabricSessionShutdown(session) == FABRIC_OK); FabricDestroySession(session);
+  auto missing_flash = epoch; std::strncpy(missing_flash.backend_path, FAKE_PRODUCTION_AMBER_EPOCH_MISSING_FLASH_PATH, sizeof(missing_flash.backend_path)-1);
+  CHECK(FabricCreateSession(runtime, &missing_flash, &session) == FABRIC_NOT_SUPPORTED);
+  CHECK(error(runtime).find("SetFlashROMMode") != std::string::npos);
+  auto malformed_epoch = epoch; auto bad_epoch = ec; bad_epoch.flash_rom_mode = 2;
+  malformed_epoch.machine_configuration = &bad_epoch;
+  CHECK(FabricCreateSession(runtime, &malformed_epoch, &session) == FABRIC_INVALID_ARGUMENT);
   FabricDestroyRuntime(runtime);
   return 0;
 }

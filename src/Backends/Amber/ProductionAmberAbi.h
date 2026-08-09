@@ -205,6 +205,7 @@ struct ProductionAmberApi {
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *Shutdown)() = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *Reset)() = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *ResetMpu5)() = nullptr;
+  uint8_t (FABRIC_PRODUCTION_AMBER_CALL *ResetEpoch)() = nullptr;
   int32_t (FABRIC_PRODUCTION_AMBER_CALL *Run)(uint32_t) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *LoadROM)(uint8_t *, uint8_t *, uint8_t *, uint8_t *) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *GetOutputSnapshotSize)() = nullptr;
@@ -243,6 +244,9 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *SetSECFitted)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetHopperType)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetReelJumperProfile)(uint8_t, uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetFlashROMMode)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetReelExt)(uint8_t) = nullptr;
+  void (FABRIC_PRODUCTION_AMBER_CALL *SetLockoutVal)(uint8_t, uint8_t) = nullptr;
 };
 #undef FABRIC_PRODUCTION_AMBER_CALL
 
