@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -43,7 +42,6 @@ T resolve(AmberDynamicLibrary &library, const char *name) {
 
 
 enum class AmberMachine { System6, Mpu3, Mpu5, Epoch };
-struct Mpu3Rom { std::string path; uint32_t address; };
 
 class ProductionAmberInstance final : public FabricBackendInstance {
 public:
@@ -54,11 +52,10 @@ public:
                  const FabricAmberMpu5ConfigurationV1 *mpu5_configuration,
                  const FabricAmberEpochConfigurationV1 *epoch_configuration,
                  const FabricAmberMpu3Config *mpu3_configuration,
-                 std::vector<Mpu3Rom> mpu3_roms,
                  std::string path, AmberMachine machine, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
-        sound_(std::move(sound)), mpu3_roms_(std::move(mpu3_roms)), path_(std::move(path)), machine_(machine),
+        sound_(std::move(sound)), path_(std::move(path)), machine_(machine),
         diagnostic_(diagnostic), diagnostic_user_data_(diagnostic_user_data) {
     if (system6_configuration)
       system6_config_ = *system6_configuration;
@@ -86,16 +83,9 @@ public:
     started_ = true;
     if (machine_ == AmberMachine::Epoch)
       api_.SetFlashROMMode(static_cast<uint8_t>(epoch_config_.flash_rom_mode));
-    if (machine_ == AmberMachine::Mpu3) {
-      for (const auto &rom : mpu3_roms_) {
-        std::ifstream stream(rom.path, std::ios::binary);
-        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(stream)), {});
-        if (!stream || bytes.empty() || bytes.size() > static_cast<size_t>(INT32_MAX) ||
-            !api_.Mpu3LoadROM(bytes.data(), static_cast<INT32>(bytes.size()), static_cast<INT32>(rom.address)))
-          return fail("LoadROM", "MPU3 ROM load failed; DLL='" + path_ + "'");
-      }
-    } else if (!load_roms(api_.LoadROM, program_, "program"))
-      return FABRIC_NOT_FOUND;
+    if (!load_roms(api_.LoadROM, program_, "program"))
+      return machine_ == AmberMachine::Mpu3 ? FABRIC_BACKEND_ERROR
+                                             : FABRIC_NOT_FOUND;
     if (!sound_.empty() && !load_roms(api_.LoadSoundROM, sound_, "sound"))
       return api_.LoadSoundROM ? FABRIC_NOT_FOUND : FABRIC_NOT_SUPPORTED;
     /* The production core may clear all machine configuration in Reset.  Use
@@ -629,9 +619,21 @@ private:
                        "; Amber return=" + std::to_string(native) +
                        (native ? "; Fabric result=0" : "; Fabric result=3"));
     if (!native) {
-      error_ = std::string("production Amber adapter: Load ") + role +
-               " ROMs failed: Amber return=0; slots=" +
-               std::to_string(paths.size()) + "; DLL='" + path_ + "'";
+      if (machine_ == AmberMachine::Mpu3) {
+        std::ostringstream detail;
+        detail << "production Amber adapter: Load " << role
+               << " ROMs failed: machine=barcrest-mpu3; rom_count="
+               << paths.size() << "; native_return=" << native;
+        for (size_t i = 0; i < paths.size(); ++i)
+          detail << "; slot" << i << "="
+                 << std::filesystem::path(paths[i]).filename().string();
+        detail << "; DLL='" << path_ << "'";
+        error_ = detail.str();
+      } else {
+        error_ = std::string("production Amber adapter: Load ") + role +
+                 " ROMs failed: Amber return=0; slots=" +
+                 std::to_string(paths.size()) + "; DLL='" + path_ + "'";
+      }
       return false;
     }
     return true;
@@ -933,7 +935,6 @@ private:
   std::unique_ptr<AmberDynamicLibrary> library_;
   ProductionAmberApi api_{};
   std::vector<std::string> program_, sound_;
-  std::vector<Mpu3Rom> mpu3_roms_;
   FabricAmberSystem6ConfigurationV2 system6_config_{};
   FabricAmberMpu5ConfigurationV1 mpu5_config_{};
   FabricAmberEpochConfigurationV1 epoch_config_{};
@@ -1000,7 +1001,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     if (mpu3) {
 #define MPU3REQ(member, name) if (!required(*library, a.member, name, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
       MPU3REQ(Mpu3Initialise, "Initialise"); MPU3REQ(Mpu3Shutdown, "Shutdown");
-      MPU3REQ(Mpu3Reset, "Reset"); MPU3REQ(Mpu3Run, "Run"); MPU3REQ(Mpu3LoadROM, "LoadROM");
+      MPU3REQ(Mpu3Reset, "Reset"); MPU3REQ(Mpu3Run, "Run"); MPU3REQ(LoadROM, "LoadROM");
       MPU3REQ(Mpu3SetDIP, "SetDIP");
       MPU3REQ(GetOutputSnapshotSize, "GetOutputSnapshotSize");
       MPU3REQ(GetOutputSnapshot, "GetOutputSnapshot");
@@ -1068,13 +1069,10 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     }
 #undef OPT
     std::vector<std::pair<uint32_t, std::string>> p, s;
-    std::vector<Mpu3Rom> mpu3_roms;
     if (request.rom_resource_count) {
       for (uint32_t i = 0; i < request.rom_resource_count; ++i) {
         const auto &r = request.rom_resources[i];
-        if (mpu3 && r.role == FABRIC_ROM_ROLE_PROGRAM)
-          mpu3_roms.push_back({r.path, static_cast<uint32_t>(r.load_address)});
-        else if (r.role == FABRIC_ROM_ROLE_PROGRAM)
+        if (r.role == FABRIC_ROM_ROLE_PROGRAM)
           p.emplace_back(r.slot, r.path);
         else if (r.role == FABRIC_ROM_ROLE_SOUND)
           s.emplace_back(r.slot, r.path);
@@ -1118,7 +1116,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     out = std::make_unique<ProductionAmberInstance>(std::move(library), a,
                                            std::move(program), std::move(sound),
                                            system6_config, mpu5_config, epoch_config,
-                                           mpu3_config, std::move(mpu3_roms),
+                                           mpu3_config,
                                            request.backend_path,
                                            machine,
                                            request.diagnostic_callback,

@@ -9,15 +9,20 @@
 namespace {
 bool live; uint32_t cycles, resets, reel_calls, dip_calls, coin_calls, snapshot_calls;
 uint8_t reels[4], opto_start[4], opto_end[4], invert[4], dips[16], switches[256];
-uint32_t rom_size, rom_address, rom_checksum;
+uint32_t rom_count, rom_order_mask;
 }
 EXPORT uint8_t Initialise() { live=true; cycles=resets=reel_calls=dip_calls=coin_calls=0; return 1; }
 EXPORT void Shutdown() { live=false; }
 EXPORT uint8_t Reset(int, int, int) { ++resets; std::memset(reels,0,sizeof(reels)); std::memset(dips,0,sizeof(dips)); return 1; }
 EXPORT INT32 Run(INT32 n) { cycles += static_cast<uint32_t>(n); return n; }
-EXPORT uint8_t LoadROM(uint8_t *p, INT32 n, INT32 address) {
-  rom_size=static_cast<uint32_t>(n); rom_address=static_cast<uint32_t>(address); rom_checksum=0;
-  for (INT32 i=0;i<n;++i) rom_checksum += p[i]; return live && n>0;
+EXPORT uint32_t LoadROM(uint8_t *a,uint8_t *b,uint8_t *c,uint8_t *d) {
+  const char *paths[4]={reinterpret_cast<char *>(a),reinterpret_cast<char *>(b),
+                        reinterpret_cast<char *>(c),reinterpret_cast<char *>(d)};
+  rom_count=rom_order_mask=0;
+  const char *names[4]={"/does/not/exist/RR1","/does/not/exist/RR2","/does/not/exist/RR3","/does/not/exist/RR4"};
+  for(uint32_t i=0;i<4;++i) if(paths[i]) { ++rom_count; if(std::strcmp(paths[i],names[i])==0) rom_order_mask|=1u<<i; }
+  if(!d) rom_order_mask|=16u;
+  return live && a && std::strcmp(reinterpret_cast<char *>(a),"/does/not/exist/fail")!=0;
 }
 #ifndef FAKE_AMBER_OMIT_SET_STEPS
 EXPORT void SetSteps(uint8_t i,uint8_t n) { if(i<4)reels[i]=n; ++reel_calls; }
@@ -37,8 +42,8 @@ EXPORT uint32_t GetOutputSnapshot(void *buffer,uint32_t size) {
   s->MatrixLampCount=32; s->ReelCount=4; s->AlphaSegmentedDisplayCount=1; s->LedDisplayCount=2;
   s->TriacLampCount=1; s->MeterCount=6;
   s->MatrixLamps[0].OnOff=switches[7]; s->MatrixLamps[0].Brightness=switches[7]?1.f:0.f;
-  s->MatrixLamps[1].Brightness=static_cast<float>(cycles); s->MatrixLamps[2].Brightness=static_cast<float>(rom_size);
-  s->MatrixLamps[3].Brightness=static_cast<float>(rom_address); s->MatrixLamps[4].Brightness=static_cast<float>(rom_checksum);
+  s->MatrixLamps[1].Brightness=static_cast<float>(cycles); s->MatrixLamps[2].Brightness=static_cast<float>(rom_count);
+  s->MatrixLamps[3].Brightness=static_cast<float>(rom_order_mask);
   s->MatrixLamps[5].Brightness=static_cast<float>(reel_calls); s->MatrixLamps[6].Brightness=static_cast<float>(dip_calls);
   s->MatrixLamps[7].Brightness=static_cast<float>(coin_calls); s->MatrixLamps[8].Brightness=switches[3]?1.f:0.f;
   s->MatrixLamps[9].Brightness=static_cast<float>(opto_start[2]+opto_end[2]+invert[2]);

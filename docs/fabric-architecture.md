@@ -36,7 +36,7 @@ The following checks remain manual and must not be inferred from cross-platform 
 ### Amber production families
 
 `amber` dispatches by exact machine identifier: `jpm-system6` selects the System 6
-ABI (8,000 cycles/ms), `barcrest-mpu3` selects the directly-addressed MPU3 ABI
+ABI (8,000 cycles/ms), `barcrest-mpu3` selects the ordered path-based MPU3 ABI
 (675 cycles/ms, switch-based coins, and optional common Amber audio), while
 `barcrest-mpu5` selects the separately typed MPU5 ABI
 (16,000 cycles/ms). Provider paths are explicit and absolute; filenames do not affect

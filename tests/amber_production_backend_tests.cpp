@@ -2,7 +2,6 @@
 #include "fabric/fabric_amber.h"
 
 #include <cstring>
-#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -605,24 +604,24 @@ int main() {
   auto malformed_epoch = epoch; auto bad_epoch = ec; bad_epoch.flash_rom_mode = 2;
   malformed_epoch.machine_configuration = &bad_epoch;
   CHECK(FabricCreateSession(runtime, &malformed_epoch, &session) == FABRIC_INVALID_ARGUMENT);
-  const char mpu3_rom_path[] = "/tmp/fabric-mpu3-test.rom";
-  { std::ofstream f(mpu3_rom_path, std::ios::binary); const char bytes[] = {1,2,3,4}; f.write(bytes,4); }
   FabricAmberMpu3Config mc{}; mc.magic=FABRIC_AMBER_MPU3_CONFIGURATION_MAGIC;
   mc.struct_size=sizeof(mc); mc.version=FABRIC_AMBER_MPU3_CONFIGURATION_VERSION_1;
   mc.reel_count=FABRIC_AMBER_MPU3_REEL_COUNT;
   for (auto &r : mc.reels) r.steps=96;
   mc.reels[2].opto_start=5; mc.reels[2].opto_end=6; mc.reels[2].opto_invert=1; mc.dips[3]=1;
   auto mpu3=request(FAKE_PRODUCTION_AMBER_MPU3_PATH); std::strcpy(mpu3.machine_identifier,"barcrest-mpu3");
-  FabricRomResource mr{}; mr.struct_size=sizeof(mr); mr.struct_version=FABRIC_ABI_VERSION_CURRENT;
-  mr.role=FABRIC_ROM_ROLE_PROGRAM; mr.path=mpu3_rom_path; mr.load_address=0x1234;
-  mpu3.rom_resources=&mr; mpu3.rom_resource_count=1; mpu3.machine_configuration=&mc; mpu3.machine_configuration_size=sizeof(mc);
+  FabricRomResource mr[3]{};
+  const char *mpu3_paths[3]={"/does/not/exist/RR1","/does/not/exist/RR2","/does/not/exist/RR3"};
+  for(uint32_t i=0;i<3;++i) { mr[i].struct_size=sizeof(mr[i]); mr[i].struct_version=FABRIC_ABI_VERSION_CURRENT;
+    mr[i].role=FABRIC_ROM_ROLE_PROGRAM; mr[i].slot=i; mr[i].path=mpu3_paths[i]; }
+  mpu3.rom_resources=mr; mpu3.rom_resource_count=3; mpu3.machine_configuration=&mc; mpu3.machine_configuration_size=sizeof(mc);
   CHECK(FabricCreateSession(runtime,&mpu3,&session)==FABRIC_OK); CHECK(FabricSessionInitialise(session)==FABRIC_OK);
   CHECK(FabricSessionAdvance(session,1000000)==FABRIC_OK);
   FabricLamp ml[32]{}; FabricReel mreel[4]{}; FabricCharacterDisplay ma[1]{}; FabricSegmentDisplay ms[2]{}; FabricMachineSnapshot mss{};
   mss.struct_size=sizeof(mss); mss.struct_version=FABRIC_ABI_VERSION_CURRENT; mss.lamps=ml; mss.lamp_capacity=32;
   mss.reels=mreel; mss.reel_capacity=4; mss.character_displays=ma; mss.character_display_capacity=1; mss.segment_displays=ms; mss.segment_display_capacity=2;
   CHECK(FabricSessionGetSnapshot(session,&mss)==FABRIC_OK); CHECK(ml[1].brightness==675.f);
-  CHECK(ml[2].brightness==4.f && ml[3].brightness==4660.f && ml[4].brightness==10.f);
+  CHECK(ml[2].brightness==3.f && ml[3].brightness==23.f);
   CHECK(ml[5].brightness==16.f && ml[6].brightness==16.f && ml[9].brightness==12.f);
   CHECK(ml[10].brightness==1.f); CHECK(mss.reel_count==4 && mreel[3].position==13);
   CHECK(ma[0].characters[0]==0x1234 && ms[0].segment_masks[0]==0x5a);
@@ -641,6 +640,13 @@ int main() {
   CHECK(FabricSessionReset(session)==FABRIC_OK);
   CHECK(FabricSessionGetSnapshot(session,&mss)==FABRIC_OK); CHECK(ml[5].brightness==32.f && ml[6].brightness==32.f);
   CHECK(FabricSessionShutdown(session)==FABRIC_OK); FabricDestroySession(session);
+  FabricRomResource four_roms[4]{};
+  const char *four_paths[4]={"/does/not/exist/RR1","/does/not/exist/RR2","/does/not/exist/RR3","/does/not/exist/RR4"};
+  for(uint32_t i=0;i<4;++i) { four_roms[i]=mr[i<3?i:0]; four_roms[i].slot=i; four_roms[i].path=four_paths[i]; }
+  auto four_rom_mpu3=mpu3; four_rom_mpu3.rom_resources=four_roms; four_rom_mpu3.rom_resource_count=4;
+  CHECK(FabricCreateSession(runtime,&four_rom_mpu3,&session)==FABRIC_OK); CHECK(FabricSessionInitialise(session)==FABRIC_OK);
+  CHECK(FabricSessionGetSnapshot(session,&mss)==FABRIC_OK); CHECK(ml[2].brightness==4.f && ml[3].brightness==15.f);
+  CHECK(FabricSessionShutdown(session)==FABRIC_OK); FabricDestroySession(session);
   auto wrong_mpu3=mpu3; wrong_mpu3.machine_configuration_size=sizeof(mc)-1;
   CHECK(FabricCreateSession(runtime,&wrong_mpu3,&session)==FABRIC_INVALID_ARGUMENT);
   auto missing_mpu3_steps=mpu3;
@@ -654,7 +660,15 @@ int main() {
   mcap={}; mcap.struct_size=sizeof(mcap); mcap.struct_version=FABRIC_ABI_VERSION_CURRENT;
   CHECK(FabricSessionGetCapabilities(session,&mcap)==FABRIC_OK); CHECK(!(mcap.flags & FABRIC_CAPABILITY_AUDIO));
   CHECK(FabricSessionShutdown(session)==FABRIC_OK); FabricDestroySession(session);
-  std::remove(mpu3_rom_path);
+  auto failing_mpu3=mpu3; auto failing_roms=mr;
+  failing_roms[0].path="/does/not/exist/fail"; failing_mpu3.rom_resources=failing_roms;
+  CHECK(FabricCreateSession(runtime,&failing_mpu3,&session)==FABRIC_OK);
+  CHECK(FabricSessionInitialise(session)==FABRIC_BACKEND_ERROR);
+  CHECK(session_error(session).find("machine=barcrest-mpu3")!=std::string::npos);
+  CHECK(session_error(session).find("rom_count=3")!=std::string::npos);
+  CHECK(session_error(session).find("slot0=fail")!=std::string::npos);
+  CHECK(session_error(session).find("native_return=0")!=std::string::npos);
+  FabricDestroySession(session);
   FabricDestroyRuntime(runtime);
   return 0;
 }

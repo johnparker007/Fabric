@@ -45,13 +45,13 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
       error = "malformed typed ROM resource";
       return FABRIC_INVALID_ARGUMENT;
     }
-    if (resource.reserved) {
+    if (resource.reserved[0] || resource.reserved[1]) {
       error = "ROM resource reserved field must be zero";
       return FABRIC_INVALID_ARGUMENT;
     }
     if (std::string(request.machine_identifier) == "barcrest-mpu3" &&
-        (resource.role == FABRIC_ROM_ROLE_SOUND || resource.load_address > INT32_MAX)) {
-      error = "MPU3 accepts only directly-addressed program ROMs";
+        resource.role == FABRIC_ROM_ROLE_SOUND) {
+      error = "MPU3 accepts program ROM paths only";
       return FABRIC_INVALID_ARGUMENT;
     }
     if (resource.role != FABRIC_ROM_ROLE_PROGRAM &&
@@ -83,6 +83,11 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
   };
   if (!contiguous(program) || !contiguous(sound)) {
     error = "Amber program and sound ROM slots must be contiguous from slot zero";
+    return FABRIC_INVALID_ARGUMENT;
+  }
+  if (std::string(request.machine_identifier) == "barcrest-mpu3" &&
+      request.rom_path_count == 0 && program.empty()) {
+    error = "MPU3 requires between one and four program ROM paths";
     return FABRIC_INVALID_ARGUMENT;
   }
   return FABRIC_OK;
