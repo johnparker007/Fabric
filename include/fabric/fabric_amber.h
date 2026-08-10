@@ -11,6 +11,32 @@
 #define FABRIC_AMBER_MPU3_CONFIGURATION_MAGIC UINT32_C(0x334D4146)
 #define FABRIC_AMBER_MPU3_CONFIGURATION_VERSION_1 1u
 
+#define FABRIC_AMBER_M1_REEL_COUNT 6u
+#define FABRIC_AMBER_M1_DIP_COUNT 16u
+#define FABRIC_AMBER_M1_HOPPER_COUNT 2u
+#define FABRIC_AMBER_M1_CONFIGURATION_MAGIC UINT32_C(0x314D4146)
+/* little-endian bytes: "FAM1" */
+#define FABRIC_AMBER_M1_CONFIGURATION_VERSION_1 1u
+
+typedef struct FabricAmberM1ReelConfig {
+  uint8_t steps, opto_start, opto_end, opto_invert;
+} FabricAmberM1ReelConfig;
+typedef struct FabricAmberM1HopperConfig {
+  uint8_t enabled, opto_enable, opto_return, motor_enable;
+  uint8_t coin, lo_enable, lo_invert, lo_switch;
+  uint8_t hi_enable, hi_invert, hi_switch, lo_indicator;
+  uint8_t hi_indicator, reserved8[3];
+  uint32_t coins_in, coins_out, level, full_level, lo_level, hi_level,
+      coins_refilled;
+} FabricAmberM1HopperConfig;
+typedef struct FabricAmberM1Config {
+  uint32_t magic, struct_size, version, reel_count;
+  FabricAmberM1ReelConfig reels[FABRIC_AMBER_M1_REEL_COUNT];
+  uint8_t dips[FABRIC_AMBER_M1_DIP_COUNT];
+  uint8_t percentage_key, edc_enabled, hopper_count, reserved0;
+  FabricAmberM1HopperConfig hoppers[FABRIC_AMBER_M1_HOPPER_COUNT];
+} FabricAmberM1Config;
+
 typedef struct FabricAmberMpu3ReelConfig {
   uint8_t steps;
   uint8_t opto_start;

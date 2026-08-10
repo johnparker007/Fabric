@@ -41,7 +41,7 @@ T resolve(AmberDynamicLibrary &library, const char *name) {
 
 
 
-enum class AmberMachine { System6, Mpu3, Mpu5, Epoch };
+enum class AmberMachine { System6, Mpu3, Mpu5, Epoch, M1 };
 
 class ProductionAmberInstance final : public FabricBackendInstance {
 public:
@@ -52,6 +52,7 @@ public:
                  const FabricAmberMpu5ConfigurationV1 *mpu5_configuration,
                  const FabricAmberEpochConfigurationV1 *epoch_configuration,
                  const FabricAmberMpu3Config *mpu3_configuration,
+                 const FabricAmberM1Config *m1_configuration,
                  std::string path, AmberMachine machine, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
@@ -65,6 +66,8 @@ public:
       epoch_config_ = *epoch_configuration;
     if (mpu3_configuration)
       mpu3_config_ = *mpu3_configuration;
+    if (m1_configuration)
+      m1_config_ = *m1_configuration;
   }
   ~ProductionAmberInstance() override {
     if (started_ && !stopped_)
@@ -107,6 +110,8 @@ public:
       if (!api_.ResetMpu5()) return fail("Reset", "Amber return=0; machine='barcrest-mpu5'; DLL='" + path_ + "'");
     } else if (machine_ == AmberMachine::Epoch) {
       if (!api_.ResetEpoch()) return fail("Reset", "Amber return=0; machine='maygay-epoch'; DLL='" + path_ + "'");
+    } else if (machine_ == AmberMachine::M1) {
+      if (!api_.ResetM1()) return fail("Reset", "Amber return=0; machine='maygay-m1'; DLL='" + path_ + "'");
     } else api_.Reset();
     asserted_.clear();
     asserted_coins_.clear();
@@ -119,6 +124,7 @@ public:
       const FabricResult configured = machine_ == AmberMachine::Mpu3
           ? apply_mpu3_configuration() : machine_ == AmberMachine::Epoch
           ? apply_epoch_configuration("Post-reset configuration")
+          : machine_ == AmberMachine::M1 ? apply_m1_configuration()
           : apply_configuration("Reset configuration");
       if (configured != FABRIC_OK)
         return configured;
@@ -132,7 +138,9 @@ public:
   FabricResult advance(uint64_t ns) noexcept override {
     constexpr uint64_t tick_ns = UINT64_C(1000000);
     const uint32_t request = machine_ == AmberMachine::Mpu3 ? 675u :
-        (machine_ == AmberMachine::System6 ? 8000u : 16000u);
+        (machine_ == AmberMachine::M1 ? 2000u :
+        (machine_ == AmberMachine::System6 ? 8000u : 16000u));
+
     constexpr uint64_t maximum_catch_up = 3;
     const uint64_t whole_ticks = ns / tick_ns;
     const uint64_t combined_remainder = remainder_ + ns % tick_ns;
@@ -228,6 +236,8 @@ public:
       asserted_coins_.insert(key);
       const bool accepted = machine_ == AmberMachine::System6
           ? api_.CoinIn(input.coin_channel, input.coin_value) != 0
+          : machine_ == AmberMachine::M1
+          ? api_.CoinInM1(0, input.coin_channel, input.coin_value) != 0
           : api_.CoinInMpu5(0, input.coin_channel, input.coin_value) != 0;
       if (coin_input_diagnostic_count_ < 64) {
         emit("AmberCoinInput", "channel=" + std::to_string(input.coin_channel) +
@@ -301,6 +311,14 @@ public:
           source.DipCount != 16 || source.HopperCount != 2;
       /* TODO: Epoch's native dot-alpha display is not representable by the
        * Fabric v3 snapshot API, so it is validated above but not normalized. */
+      break;
+    case AmberMachine::M1:
+      invalid_counts = source.MatrixLampCount != 256 || source.TriacLampCount != 8 ||
+          source.ReelCount != 6 || source.AlphaSegmentedDisplayCount != 1 ||
+          source.AlphaDotDisplayCount != 0 || source.LedDisplayCount != 0 ||
+          source.ElectronicMechCount != 1 || source.MeterCount != 6 ||
+          source.DipCount != 16 || source.HopperCount != 2 ||
+          source.AlphaSegmented[0].SegmentCount != 16;
       break;
     case AmberMachine::System6:
       invalid_counts = source.MatrixLampCount < 512 || source.MatrixLampCount > 512 ||
@@ -465,7 +483,8 @@ public:
                                         path_ + "'");
     if (f.Format != PA2_AUDIO_FORMAT_PCM_S16 ||
         (f.Channels != 1 && f.Channels != 2) ||
-        f.BitsPerSample != 16)
+        f.BitsPerSample != 16 || (machine_ == AmberMachine::M1 &&
+        (f.SampleRate != 48000 || f.Channels != 2)))
       return unsupported(
           "GetAudioFormat",
           "format is not representable interleaved PCM16; sample rate=" +
@@ -564,6 +583,31 @@ public:
   std::string last_error() const noexcept override { return error_; }
 
 private:
+  FabricResult apply_m1_configuration() {
+    for (uint8_t i = 0; i < FABRIC_AMBER_M1_REEL_COUNT; ++i) {
+      const auto &r = m1_config_.reels[i];
+      api_.SetSteps(i, r.steps); api_.SetOptoStart(i, r.opto_start);
+      api_.SetOptoEnd(i, r.opto_end); api_.SetOptoInvert(i, r.opto_invert);
+    }
+    for (uint8_t i = 0; i < FABRIC_AMBER_M1_DIP_COUNT; ++i)
+      api_.SetDIP(i, m1_config_.dips[i]);
+    api_.SetPercent(m1_config_.percentage_key);
+    api_.SetEDCEnable(m1_config_.edc_enabled);
+    for (uint8_t i = 0; i < FABRIC_AMBER_M1_HOPPER_COUNT; ++i) {
+      const auto &h = m1_config_.hoppers[i];
+      api_.SetHopperEnable(i,h.enabled); api_.SetHopperCoinsIn(i,h.coins_in);
+      api_.SetHopperCoinsOut(i,h.coins_out); api_.SetHopperOptoEnable(i,h.opto_enable);
+      api_.SetHopperOptoReturn(i,h.opto_return); api_.SetHopperMotorEnable(i,h.motor_enable);
+      api_.SetHopperCoin(i,h.coin); api_.SetHopperLevel(i,h.level);
+      api_.SetHopperFullLevel(i,h.full_level); api_.SetHopperLoEnable(i,h.lo_enable);
+      api_.SetHopperLoInvert(i,h.lo_invert); api_.SetHopperLoSwitch(i,h.lo_switch);
+      api_.SetHopperLoLevel(i,h.lo_level); api_.SetHopperHiEnable(i,h.hi_enable);
+      api_.SetHopperHiInvert(i,h.hi_invert); api_.SetHopperHiSwitch(i,h.hi_switch);
+      api_.SetHopperHiLevel(i,h.hi_level); api_.SetHopperLoIndicator(i,h.lo_indicator);
+      api_.SetHopperHiIndicator(i,h.hi_indicator); api_.SetHopperCoinsRefilled(i,h.coins_refilled);
+    }
+    return FABRIC_OK;
+  }
   FabricResult apply_mpu3_configuration() {
     for (uint8_t i = 0; i < FABRIC_AMBER_MPU3_REEL_COUNT; ++i) {
       const auto &r = mpu3_config_.reels[i];
@@ -939,6 +983,7 @@ private:
   FabricAmberMpu5ConfigurationV1 mpu5_config_{};
   FabricAmberEpochConfigurationV1 epoch_config_{};
   FabricAmberMpu3Config mpu3_config_{};
+  FabricAmberM1Config m1_config_{};
   std::set<uint8_t> asserted_;
   std::set<uint16_t> asserted_coins_;
   std::string error_, path_;
@@ -985,10 +1030,12 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     const AmberMachine machine = std::strcmp(request.machine_identifier, "barcrest-mpu3") == 0
         ? AmberMachine::Mpu3 : (std::strcmp(request.machine_identifier, "barcrest-mpu5") == 0
         ? AmberMachine::Mpu5 : (std::strcmp(request.machine_identifier, "maygay-epoch") == 0
-        ? AmberMachine::Epoch : AmberMachine::System6));
+        ? AmberMachine::Epoch : (std::strcmp(request.machine_identifier, "maygay-m1") == 0
+        ? AmberMachine::M1 : AmberMachine::System6)));
     const bool mpu5 = machine == AmberMachine::Mpu5;
     const bool epoch = machine == AmberMachine::Epoch;
     const bool mpu3 = machine == AmberMachine::Mpu3;
+    const bool m1 = machine == AmberMachine::M1;
 #define REQ(n)                                                                 \
   if (!required(*library, a.n, #n, request.backend_path, error))               \
   return FABRIC_NOT_SUPPORTED
@@ -1009,6 +1056,20 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
       MPU3REQ(SetSteps, "SetSteps"); MPU3REQ(SetOptoStart, "SetOptoStart");
       MPU3REQ(SetOptoEnd, "SetOptoEnd"); MPU3REQ(SetOptoInvert, "SetOptoInvert");
 #undef MPU3REQ
+    } else if (m1) {
+#define M1REQ(member, name) if (!required(*library, a.member, name, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
+      M1REQ(ResetM1, "Reset"); M1REQ(CoinInM1, "CoinIn");
+      M1REQ(SetSteps, "SetSteps"); M1REQ(SetOptoStart, "SetOptoStart");
+      M1REQ(SetOptoEnd, "SetOptoEnd"); M1REQ(SetOptoInvert, "SetOptoInvert");
+      M1REQ(SetDIP, "SetDIP"); M1REQ(SetPercent, "SetPercent"); M1REQ(SetEDCEnable, "SetEDCEnable");
+#define H(name) M1REQ(name, #name)
+      H(SetHopperEnable); H(SetHopperCoinsIn); H(SetHopperCoinsOut); H(SetHopperOptoEnable);
+      H(SetHopperOptoReturn); H(SetHopperMotorEnable); H(SetHopperCoin); H(SetHopperLevel);
+      H(SetHopperFullLevel); H(SetHopperLoEnable); H(SetHopperLoInvert); H(SetHopperLoSwitch);
+      H(SetHopperLoLevel); H(SetHopperHiEnable); H(SetHopperHiInvert); H(SetHopperHiSwitch);
+      H(SetHopperHiLevel); H(SetHopperLoIndicator); H(SetHopperHiIndicator); H(SetHopperCoinsRefilled);
+#undef H
+#undef M1REQ
     } else if (mpu5 || epoch) {
       if (!required(*library, mpu5 ? a.ResetMpu5 : a.ResetEpoch, "Reset", request.backend_path, error) ||
           !required(*library, a.CoinInMpu5, "CoinIn", request.backend_path, error))
@@ -1024,6 +1085,14 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     }
 #define OPT(n) a.n = resolve<decltype(a.n)>(*library, #n)
     OPT(LoadSoundROM); OPT(GetAudioFormat); OPT(FillAudioFrames);
+    if (m1 && (!a.LoadSoundROM || !a.GetAudioFormat || !a.FillAudioFrames)) {
+      /* M1 exposes sound loading and streaming as one coherent optional
+       * capability. A soundless M1 can run without it; a partial ABI is never
+       * advertised or called. */
+      a.LoadSoundROM = nullptr;
+      a.GetAudioFormat = nullptr;
+      a.FillAudioFrames = nullptr;
+    }
     if (machine == AmberMachine::System6) {
       OPT(SetOptoInvert); OPT(SetOptoStart); OPT(SetOptoEnd); OPT(SetSteps);
       OPT(SetCommStyle); OPT(SetCommInvert); OPT(SetCycles); OPT(SetEDCEnable);
@@ -1101,6 +1170,8 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
         ? static_cast<const FabricAmberEpochConfigurationV1 *>(request.machine_configuration) : nullptr;
     const auto *mpu3_config = mpu3 && request.machine_configuration_size
         ? static_cast<const FabricAmberMpu3Config *>(request.machine_configuration) : nullptr;
+    const auto *m1_config = m1 && request.machine_configuration_size
+        ? static_cast<const FabricAmberM1Config *>(request.machine_configuration) : nullptr;
     amber_trace::Write("selected for DLL='" +
                        std::string(request.backend_path) + "'");
     if (request.diagnostic_callback) {
@@ -1116,7 +1187,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     out = std::make_unique<ProductionAmberInstance>(std::move(library), a,
                                            std::move(program), std::move(sound),
                                            system6_config, mpu5_config, epoch_config,
-                                           mpu3_config,
+                                           mpu3_config, m1_config,
                                            request.backend_path,
                                            machine,
                                            request.diagnostic_callback,

@@ -27,6 +27,14 @@ static_assert(offsetof(FabricAmberMpu5ConfigurationV1, coins) == 192, "MPU5 coin
 static_assert(offsetof(FabricAmberMpu5ConfigurationV1, options) == 344, "MPU5 options offset");
 static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 404,
               "MPU5 configuration layout");
+static_assert(sizeof(FabricAmberM1ReelConfig) == 4);
+static_assert(sizeof(FabricAmberM1HopperConfig) == 44);
+static_assert(sizeof(FabricAmberM1Config) == 148);
+static_assert(offsetof(FabricAmberM1Config, reels) == 16);
+static_assert(offsetof(FabricAmberM1Config, dips) == 40);
+static_assert(offsetof(FabricAmberM1Config, percentage_key) == 56);
+static_assert(offsetof(FabricAmberM1Config, hoppers) == 60);
+static_assert(offsetof(FabricAmberM1HopperConfig, coins_refilled) == 40);
 int main() {
   FabricRuntime *runtime = nullptr;
   if (FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) != FABRIC_OK)
