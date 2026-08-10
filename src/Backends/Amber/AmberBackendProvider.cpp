@@ -90,14 +90,37 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
     error = "MPU3 requires between one and four program ROM paths";
     return FABRIC_INVALID_ARGUMENT;
   }
+  if (std::string(request.machine_identifier) == "maygay-m1") {
+    const size_t count = request.rom_path_count ? request.rom_path_count : program.size();
+    if (count < 1 || count > 4) {
+      error = "M1 requires between one and four program ROM paths";
+      return FABRIC_INVALID_ARGUMENT;
+    }
+    uintmax_t total = 0;
+    try {
+      if (request.rom_path_count)
+        for (uint32_t i = 0; i < request.rom_path_count; ++i)
+          total += std::filesystem::file_size(request.rom_paths[i]);
+      else
+        for (const auto &r : program) total += std::filesystem::file_size(r.second);
+    } catch (const std::filesystem::filesystem_error &) {
+      error = "M1 program ROM path could not be inspected";
+      return FABRIC_NOT_FOUND;
+    }
+    if (total > UINT32_C(0x20000)) {
+      error = "M1 combined program ROM size exceeds 131072 bytes";
+      return FABRIC_INVALID_ARGUMENT;
+    }
+  }
   return FABRIC_OK;
 }
 
 FabricResult validate_configuration(const FabricLaunchRequest &request,
                                     std::string &error) {
   if (!request.machine_configuration_size &&
-      std::string(request.machine_identifier) == "barcrest-mpu3") {
-    error = "Amber machine 'barcrest-mpu3' requires FabricAmberMpu3Config";
+      (std::string(request.machine_identifier) == "barcrest-mpu3" ||
+       std::string(request.machine_identifier) == "maygay-m1")) {
+    error = "selected Amber machine requires its dedicated configuration";
     return FABRIC_INVALID_ARGUMENT;
   }
   if (!request.machine_configuration_size)
@@ -110,6 +133,30 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
   };
   if (!request.machine_configuration)
     return malformed("is null");
+  if (machine == "maygay-m1") {
+    if (request.machine_configuration_size != sizeof(FabricAmberM1Config))
+      return malformed("expected FabricAmberM1Config (148 bytes)");
+    const auto &c = *static_cast<const FabricAmberM1Config *>(request.machine_configuration);
+    if (c.magic != FABRIC_AMBER_M1_CONFIGURATION_MAGIC || c.struct_size != sizeof(c) ||
+        c.version != FABRIC_AMBER_M1_CONFIGURATION_VERSION_1 ||
+        c.reel_count != FABRIC_AMBER_M1_REEL_COUNT ||
+        c.hopper_count != FABRIC_AMBER_M1_HOPPER_COUNT || c.percentage_key > 15 ||
+        c.edc_enabled > 1 || c.reserved0)
+      return malformed("is not a valid FabricAmberM1Config");
+    for (uint32_t i = 0; i < FABRIC_AMBER_M1_REEL_COUNT; ++i)
+      if (!c.reels[i].steps || c.reels[i].opto_invert > 1)
+        return malformed("has an invalid M1 reel entry");
+    for (uint8_t v : c.dips) if (v > 1) return malformed("has an invalid M1 DIP value");
+    for (const auto &h : c.hoppers) {
+      if (h.reserved8[0] || h.reserved8[1] || h.reserved8[2])
+        return malformed("has nonzero M1 hopper reserved bytes");
+      const uint8_t values[] = {h.enabled,h.opto_enable,h.opto_return,h.motor_enable,
+        h.lo_enable,h.lo_invert,h.lo_switch,h.hi_enable,h.hi_invert,h.hi_switch,
+        h.lo_indicator,h.hi_indicator};
+      for (uint8_t v : values) if (v > 1) return malformed("has an invalid M1 hopper boolean");
+    }
+    return FABRIC_OK;
+  }
   if (machine == "barcrest-mpu3") {
     if (request.machine_configuration_size != sizeof(FabricAmberMpu3Config))
       return malformed("expected FabricAmberMpu3Config (" +
@@ -293,7 +340,8 @@ public:
     try {
       const std::string machine = request.machine_identifier;
       if (machine != "jpm-system6" && machine != "barcrest-mpu5" &&
-          machine != "maygay-epoch" && machine != "barcrest-mpu3") {
+          machine != "maygay-epoch" && machine != "barcrest-mpu3" &&
+          machine != "maygay-m1") {
         error = "Amber backend 'amber' does not support machine identifier '" +
                 machine + "'; provider DLL='" + request.backend_path + "'";
         return FABRIC_NOT_SUPPORTED;

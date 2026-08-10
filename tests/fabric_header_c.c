@@ -43,6 +43,11 @@ _Static_assert(sizeof(FabricAmberMpu5OptionsV1) == 60,
                "MPU5 options layout");
 _Static_assert(sizeof(FabricAmberMpu5ConfigurationV1) == 404,
                "MPU5 machine configuration layout");
+_Static_assert(sizeof(FabricAmberM1ReelConfig) == 4, "M1 reel layout");
+_Static_assert(sizeof(FabricAmberM1HopperConfig) == 44, "M1 hopper layout");
+_Static_assert(sizeof(FabricAmberM1Config) == 148, "M1 configuration layout");
+_Static_assert(offsetof(FabricAmberM1Config, hoppers) == 60, "M1 hopper offset");
+_Static_assert(offsetof(FabricAmberM1HopperConfig, coins_in) == 16, "M1 hopper counter offset");
 _Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, reels) == 16, "MPU5 reels offset");
 _Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, coins) == 192, "MPU5 coins offset");
 _Static_assert(offsetof(FabricAmberMpu5ConfigurationV1, options) == 344, "MPU5 options offset");

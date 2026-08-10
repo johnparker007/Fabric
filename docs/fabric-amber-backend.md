@@ -143,3 +143,19 @@ Real-DLL validation is still required on Windows for export decoration/calling
 convention, ROM loading (including large flash mirroring), snapshot values, reset
 failure behavior, configuration effects, and sustained audio timing against the
 actual licensed Epoch provider.
+# Maygay M1
+
+The production Amber adapter selects Maygay M1 explicitly with `maygay-m1`.
+It accepts one to four contiguous program-ROM paths (at most 128 KiB combined)
+and zero to four contiguous sound-ROM paths. Startup is `Initialise`, program
+load, optional sound load, explicit `Reset`, then application of the strict
+148-byte `FabricAmberM1Config`; every later reset reapplies that configuration.
+
+M1 is pumped at 2 MHz (`Run(2000)` for each executed millisecond). Its native
+PA2 snapshot is validated as 256 matrix lamps, eight triacs, six reels, one
+16-character/16-segment alpha, one electronic mech, six meters, sixteen DIPs,
+and two hoppers. Fabric publishes only the 256 matrix lamps, six reels, and one
+character display. Native audio, when available, must be interleaved stereo
+PCM16 at 48 kHz. Ordinary switches use `TurnSwitchOn`/`TurnSwitchOff`; coins
+are edge-triggered through `CoinIn(0, channel, value)` and native pulse release
+is left to the core.

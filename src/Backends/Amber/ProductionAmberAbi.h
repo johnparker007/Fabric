@@ -206,6 +206,7 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *Reset)() = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *ResetMpu5)() = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *ResetEpoch)() = nullptr;
+  uint8_t (FABRIC_PRODUCTION_AMBER_CALL *ResetM1)() = nullptr;
   int32_t (FABRIC_PRODUCTION_AMBER_CALL *Run)(uint32_t) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *LoadROM)(uint8_t *, uint8_t *, uint8_t *, uint8_t *) = nullptr;
   uint32_t (FABRIC_PRODUCTION_AMBER_CALL *GetOutputSnapshotSize)() = nullptr;
@@ -214,6 +215,7 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *TurnSwitchOff)(uint8_t) = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *CoinIn)(uint8_t, uint8_t) = nullptr;
   uint8_t (FABRIC_PRODUCTION_AMBER_CALL *CoinInMpu5)(uint8_t, uint8_t, uint8_t) = nullptr;
+  uint8_t (FABRIC_PRODUCTION_AMBER_CALL *CoinInM1)(uint8_t, uint8_t, uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCommStyle)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCommInvert)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetCycles)(uint32_t) = nullptr;
@@ -247,6 +249,30 @@ struct ProductionAmberApi {
   void (FABRIC_PRODUCTION_AMBER_CALL *SetFlashROMMode)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetReelExt)(uint8_t) = nullptr;
   void (FABRIC_PRODUCTION_AMBER_CALL *SetLockoutVal)(uint8_t, uint8_t) = nullptr;
+#define FABRIC_M1_HOPPER_BYTE(name) void (FABRIC_PRODUCTION_AMBER_CALL *name)(uint8_t, uint8_t) = nullptr
+#define FABRIC_M1_HOPPER_U32(name) void (FABRIC_PRODUCTION_AMBER_CALL *name)(uint8_t, uint32_t) = nullptr
+  FABRIC_M1_HOPPER_BYTE(SetHopperEnable);
+  FABRIC_M1_HOPPER_U32(SetHopperCoinsIn);
+  FABRIC_M1_HOPPER_U32(SetHopperCoinsOut);
+  FABRIC_M1_HOPPER_BYTE(SetHopperOptoEnable);
+  FABRIC_M1_HOPPER_BYTE(SetHopperOptoReturn);
+  FABRIC_M1_HOPPER_BYTE(SetHopperMotorEnable);
+  FABRIC_M1_HOPPER_BYTE(SetHopperCoin);
+  FABRIC_M1_HOPPER_U32(SetHopperLevel);
+  FABRIC_M1_HOPPER_U32(SetHopperFullLevel);
+  FABRIC_M1_HOPPER_BYTE(SetHopperLoEnable);
+  FABRIC_M1_HOPPER_BYTE(SetHopperLoInvert);
+  FABRIC_M1_HOPPER_BYTE(SetHopperLoSwitch);
+  FABRIC_M1_HOPPER_U32(SetHopperLoLevel);
+  FABRIC_M1_HOPPER_BYTE(SetHopperHiEnable);
+  FABRIC_M1_HOPPER_BYTE(SetHopperHiInvert);
+  FABRIC_M1_HOPPER_BYTE(SetHopperHiSwitch);
+  FABRIC_M1_HOPPER_U32(SetHopperHiLevel);
+  FABRIC_M1_HOPPER_BYTE(SetHopperLoIndicator);
+  FABRIC_M1_HOPPER_BYTE(SetHopperHiIndicator);
+  FABRIC_M1_HOPPER_U32(SetHopperCoinsRefilled);
+#undef FABRIC_M1_HOPPER_BYTE
+#undef FABRIC_M1_HOPPER_U32
   /* MPU3 exports deliberately have their own exact ABI types. */
   using Mpu3InitialiseFn = uint8_t (FABRIC_PRODUCTION_AMBER_CALL *)();
   using Mpu3ShutdownFn = void (FABRIC_PRODUCTION_AMBER_CALL *)();
