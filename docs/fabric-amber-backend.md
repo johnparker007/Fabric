@@ -1,5 +1,25 @@
 # Production Amber backend
 
+## Bell-Fruit Scorpion 4
+
+`bellfruit-scorpion4` selects `Scorpion4Core.dll`. It requires one to four
+program-ROM paths and accepts zero to four sound-ROM paths. Contiguous typed
+slots pass directly to the core without Fabric interleaving, sorting,
+concatenation, or load addresses.
+
+Its 16,670,000 Hz MC68307 timebase means every Fabric millisecond calls
+`Run(16670)` once; that call alone clocks board peripherals and YMZ280B. The
+byte-valued native reset result is checked, and the complete 152-byte
+configuration is applied after every successful reset. Audio is required 48
+kHz stereo signed PCM16.
+
+Snapshots publish 256 matrix lamps, six reels, two segmented alpha displays,
+and 32 single-digit LED displays. The native alpha-dot duplicate, meters, DIPs,
+and hopper/accounting records are validated but intentionally not published by
+Fabric v3. Generic hopper opto/motor/switch/indicator exports, communication and
+lockout settings, `SetCycles`, compatibility coin aliases, and external
+security/PIC configuration are intentionally unsupported for this machine.
+
 The `amber` backend loads only the exact absolute DLL path supplied by the frontend. It neither searches
 for a DLL nor substitutes a filename. The supplied library must implement the production flat/singleton
 Amber/JPM System 6 C ABI. Required exports are resolved eagerly; an error identifies both a missing

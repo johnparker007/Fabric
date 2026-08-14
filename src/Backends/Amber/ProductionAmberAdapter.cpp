@@ -30,6 +30,37 @@ static_assert(sizeof(PA2_OutputSnapshot) == 24812,
               "production Amber snapshot ABI size changed");
 static_assert(sizeof(PA2_AudioFormat) == 24,
               "production Amber audio ABI size changed");
+static_assert(sizeof(FabricAmberScorpion4ReelConfig) == 4);
+static_assert(sizeof(FabricAmberScorpion4CoinConfig) == 4);
+static_assert(sizeof(FabricAmberScorpion4HopperConfig) == 32);
+static_assert(sizeof(FabricAmberScorpion4Config) == 152);
+static_assert(offsetof(FabricAmberScorpion4Config, magic) == 0);
+static_assert(offsetof(FabricAmberScorpion4Config, struct_size) == 4);
+static_assert(offsetof(FabricAmberScorpion4Config, version) == 8);
+static_assert(offsetof(FabricAmberScorpion4Config, reel_count) == 12);
+static_assert(offsetof(FabricAmberScorpion4Config, reels) == 16);
+static_assert(offsetof(FabricAmberScorpion4Config, dips) == 40);
+static_assert(offsetof(FabricAmberScorpion4Config, stake) == 56);
+static_assert(offsetof(FabricAmberScorpion4Config, prize) == 57);
+static_assert(offsetof(FabricAmberScorpion4Config, percentage) == 58);
+static_assert(offsetof(FabricAmberScorpion4Config, edc_enabled) == 59);
+static_assert(offsetof(FabricAmberScorpion4Config, hopper_type) == 60);
+static_assert(offsetof(FabricAmberScorpion4Config, hopper_count) == 61);
+static_assert(offsetof(FabricAmberScorpion4Config, coin_channel_count) == 62);
+static_assert(offsetof(FabricAmberScorpion4Config, reserved0) == 63);
+static_assert(offsetof(FabricAmberScorpion4Config, coins) == 64);
+static_assert(offsetof(FabricAmberScorpion4Config, hoppers) == 88);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, enabled) == 0);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, coin) == 1);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, lo_enable) == 2);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, hi_enable) == 3);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, coins_in) == 4);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, coins_out) == 8);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, level) == 12);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, full_level) == 16);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, lo_level) == 20);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, hi_level) == 24);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, coins_refilled) == 28);
 template <typename T>
 T resolve(AmberDynamicLibrary &library, const char *name) {
   void *symbol = library.symbol(name);
@@ -41,7 +72,7 @@ T resolve(AmberDynamicLibrary &library, const char *name) {
 
 
 
-enum class AmberMachine { System6, Mpu3, Mpu5, Epoch, M1 };
+enum class AmberMachine { System6, Mpu3, Mpu5, Epoch, M1, Scorpion4 };
 
 class ProductionAmberInstance final : public FabricBackendInstance {
 public:
@@ -53,6 +84,7 @@ public:
                  const FabricAmberEpochConfigurationV1 *epoch_configuration,
                  const FabricAmberMpu3Config *mpu3_configuration,
                  const FabricAmberM1Config *m1_configuration,
+                 const FabricAmberScorpion4Config *scorpion4_configuration,
                  std::string path, AmberMachine machine, FabricDiagnosticCallback diagnostic,
                  void *diagnostic_user_data)
       : library_(std::move(library)), api_(api), program_(std::move(program)),
@@ -68,6 +100,8 @@ public:
       mpu3_config_ = *mpu3_configuration;
     if (m1_configuration)
       m1_config_ = *m1_configuration;
+    if (scorpion4_configuration)
+      scorpion4_config_ = *scorpion4_configuration;
   }
   ~ProductionAmberInstance() override {
     if (started_ && !stopped_)
@@ -112,6 +146,8 @@ public:
       if (!api_.ResetEpoch()) return fail("Reset", "Amber return=0; machine='maygay-epoch'; DLL='" + path_ + "'");
     } else if (machine_ == AmberMachine::M1) {
       if (!api_.ResetM1()) return fail("Reset", "Amber return=0; machine='maygay-m1'; DLL='" + path_ + "'");
+    } else if (machine_ == AmberMachine::Scorpion4) {
+      if (!api_.ResetScorpion4()) return fail("Reset", "Amber return=0; machine='bellfruit-scorpion4'; DLL='" + path_ + "'");
     } else api_.Reset();
     asserted_.clear();
     asserted_coins_.clear();
@@ -125,6 +161,7 @@ public:
           ? apply_mpu3_configuration() : machine_ == AmberMachine::Epoch
           ? apply_epoch_configuration("Post-reset configuration")
           : machine_ == AmberMachine::M1 ? apply_m1_configuration()
+          : machine_ == AmberMachine::Scorpion4 ? apply_scorpion4_configuration()
           : apply_configuration("Reset configuration");
       if (configured != FABRIC_OK)
         return configured;
@@ -139,7 +176,8 @@ public:
     constexpr uint64_t tick_ns = UINT64_C(1000000);
     const uint32_t request = machine_ == AmberMachine::Mpu3 ? 675u :
         (machine_ == AmberMachine::M1 ? 2000u :
-        (machine_ == AmberMachine::System6 ? 8000u : 16000u));
+        (machine_ == AmberMachine::System6 ? 8000u :
+        (machine_ == AmberMachine::Scorpion4 ? 16670u : 16000u)));
 
     constexpr uint64_t maximum_catch_up = 3;
     const uint64_t whole_ticks = ns / tick_ns;
@@ -223,8 +261,10 @@ public:
       }
       if (input.coin_channel > 5)
         return invalid("Amber coin channel must be in the range 0..5");
-      if (input.coin_value > 12)
-        return invalid("Amber coin denomination must be in the range 0..12");
+      if (input.coin_value > (machine_ == AmberMachine::Scorpion4 ? 5u : 12u))
+        return invalid(machine_ == AmberMachine::Scorpion4
+                           ? "Scorpion 4 coin denomination must be in the range 0..5"
+                           : "Amber coin denomination must be in the range 0..12");
       const uint16_t key = static_cast<uint16_t>(input.coin_channel << 8) |
                            input.coin_value;
       if (!input.active) {
@@ -238,6 +278,8 @@ public:
           ? api_.CoinIn(input.coin_channel, input.coin_value) != 0
           : machine_ == AmberMachine::M1
           ? api_.CoinInM1(0, input.coin_channel, input.coin_value) != 0
+          : machine_ == AmberMachine::Scorpion4
+          ? api_.CoinInScorpion4(0, input.coin_channel, input.coin_value) != 0
           : api_.CoinInMpu5(0, input.coin_channel, input.coin_value) != 0;
       if (coin_input_diagnostic_count_ < 64) {
         emit("AmberCoinInput", "channel=" + std::to_string(input.coin_channel) +
@@ -320,6 +362,16 @@ public:
           source.DipCount != 16 || source.HopperCount != 2 ||
           source.AlphaSegmented[0].SegmentCount != 16;
       break;
+    case AmberMachine::Scorpion4:
+      invalid_counts = source.MatrixLampCount != 256 || source.DirectLampCount ||
+          source.FloLampCount || source.PrismLampCount || source.LedCount ||
+          source.TriacLampCount || source.FluorescentLampCount || source.DiscoLampCount ||
+          source.ReelCount != 6 || source.AlphaSegmentedDisplayCount != 2 ||
+          source.AlphaDotDisplayCount != 1 || source.LedDisplayCount != 32 ||
+          source.ElectronicMechCount || source.MechanicalMechCount ||
+          source.CoinEntryLampCount || source.MeterCount != 6 || source.TubeCount ||
+          source.DipCount != 16 || source.HopperCount != 2;
+      break;
     case AmberMachine::System6:
       invalid_counts = source.MatrixLampCount < 512 || source.MatrixLampCount > 512 ||
           source.ReelCount < 8 || source.ReelCount > 8 ||
@@ -334,9 +386,14 @@ public:
                       std::to_string(source.ReelCount) + "; alpha displays=" +
                       std::to_string(source.AlphaSegmentedDisplayCount) +
                       "; LEDs=" + std::to_string(source.LedCount));
+    if (machine_ == AmberMachine::Scorpion4)
+      for (uint32_t i = 0; i < 2; ++i)
+        if (source.AlphaSegmented[i].SegmentCount != 14 &&
+            source.AlphaSegmented[i].SegmentCount != 16)
+          return fail("GetOutputSnapshot", "invalid Scorpion 4 alpha segment count");
     out.lamp_count = source.MatrixLampCount;
     out.reel_count = source.ReelCount;
-    out.character_display_count = (machine_ == AmberMachine::Mpu5 || machine_ == AmberMachine::Mpu3) ? source.AlphaSegmentedDisplayCount : 1;
+    out.character_display_count = (machine_ == AmberMachine::Mpu5 || machine_ == AmberMachine::Mpu3 || machine_ == AmberMachine::Scorpion4) ? source.AlphaSegmentedDisplayCount : 1;
     out.segment_display_count = machine_ == AmberMachine::System6 ? 16 : source.LedDisplayCount;
     if (out.lamp_capacity < out.lamp_count ||
         out.reel_capacity < out.reel_count ||
@@ -483,7 +540,7 @@ public:
                                         path_ + "'");
     if (f.Format != PA2_AUDIO_FORMAT_PCM_S16 ||
         (f.Channels != 1 && f.Channels != 2) ||
-        f.BitsPerSample != 16 || (machine_ == AmberMachine::M1 &&
+        f.BitsPerSample != 16 || ((machine_ == AmberMachine::M1 || machine_ == AmberMachine::Scorpion4) &&
         (f.SampleRate != 48000 || f.Channels != 2)))
       return unsupported(
           "GetAudioFormat",
@@ -583,6 +640,31 @@ public:
   std::string last_error() const noexcept override { return error_; }
 
 private:
+  FabricResult apply_scorpion4_configuration() {
+    const auto &c = scorpion4_config_;
+    for (uint8_t i = 0; i < FABRIC_AMBER_SCORPION4_REEL_COUNT; ++i) {
+      const auto &r = c.reels[i];
+      api_.SetSteps(i, r.steps); api_.SetOptoStart(i, r.opto_start);
+      api_.SetOptoEnd(i, r.opto_end); api_.SetOptoInvert(i, r.opto_invert);
+    }
+    for (uint8_t i = 0; i < FABRIC_AMBER_SCORPION4_DIP_COUNT; ++i) api_.SetDIP(i, c.dips[i]);
+    api_.SetStake(c.stake); api_.SetPrize(c.prize); api_.SetPercent(c.percentage);
+    api_.SetEDCEnable(c.edc_enabled);
+    for (uint8_t i = 0; i < FABRIC_AMBER_SCORPION4_COIN_CHANNEL_COUNT; ++i) {
+      api_.SetCoinEnable(i, c.coins[i].enabled); api_.SetCoinValue(i, c.coins[i].value);
+    }
+    api_.SetHopperType(c.hopper_type);
+    for (uint8_t i = 0; i < FABRIC_AMBER_SCORPION4_HOPPER_COUNT; ++i) {
+      const auto &h = c.hoppers[i];
+      api_.SetHopperEnable(i, h.enabled); api_.SetHopperCoinsIn(i, h.coins_in);
+      api_.SetHopperCoinsOut(i, h.coins_out); api_.SetHopperCoin(i, h.coin);
+      api_.SetHopperLevel(i, h.level); api_.SetHopperFullLevel(i, h.full_level);
+      api_.SetHopperLoEnable(i, h.lo_enable); api_.SetHopperLoLevel(i, h.lo_level);
+      api_.SetHopperHiEnable(i, h.hi_enable); api_.SetHopperHiLevel(i, h.hi_level);
+      api_.SetHopperCoinsRefilled(i, h.coins_refilled);
+    }
+    return FABRIC_OK;
+  }
   FabricResult apply_m1_configuration() {
     for (uint8_t i = 0; i < FABRIC_AMBER_M1_REEL_COUNT; ++i) {
       const auto &r = m1_config_.reels[i];
@@ -984,6 +1066,7 @@ private:
   FabricAmberEpochConfigurationV1 epoch_config_{};
   FabricAmberMpu3Config mpu3_config_{};
   FabricAmberM1Config m1_config_{};
+  FabricAmberScorpion4Config scorpion4_config_{};
   std::set<uint8_t> asserted_;
   std::set<uint16_t> asserted_coins_;
   std::string error_, path_;
@@ -1031,11 +1114,13 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
         ? AmberMachine::Mpu3 : (std::strcmp(request.machine_identifier, "barcrest-mpu5") == 0
         ? AmberMachine::Mpu5 : (std::strcmp(request.machine_identifier, "maygay-epoch") == 0
         ? AmberMachine::Epoch : (std::strcmp(request.machine_identifier, "maygay-m1") == 0
-        ? AmberMachine::M1 : AmberMachine::System6)));
+        ? AmberMachine::M1 : (std::strcmp(request.machine_identifier, "bellfruit-scorpion4") == 0
+        ? AmberMachine::Scorpion4 : AmberMachine::System6))));
     const bool mpu5 = machine == AmberMachine::Mpu5;
     const bool epoch = machine == AmberMachine::Epoch;
     const bool mpu3 = machine == AmberMachine::Mpu3;
     const bool m1 = machine == AmberMachine::M1;
+    const bool scorpion4 = machine == AmberMachine::Scorpion4;
 #define REQ(n)                                                                 \
   if (!required(*library, a.n, #n, request.backend_path, error))               \
   return FABRIC_NOT_SUPPORTED
@@ -1070,6 +1155,23 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
       H(SetHopperHiLevel); H(SetHopperLoIndicator); H(SetHopperHiIndicator); H(SetHopperCoinsRefilled);
 #undef H
 #undef M1REQ
+    } else if (scorpion4) {
+#define SC4REQ(member, name) if (!required(*library, a.member, name, request.backend_path, error)) return FABRIC_NOT_SUPPORTED
+      SC4REQ(ResetScorpion4, "Reset"); SC4REQ(CoinInScorpion4, "CoinIn");
+      SC4REQ(LoadSoundROM, "LoadSoundROM"); SC4REQ(GetAudioFormat, "GetAudioFormat");
+      SC4REQ(FillAudioFrames, "FillAudioFrames");
+      SC4REQ(SetSteps, "SetSteps"); SC4REQ(SetOptoStart, "SetOptoStart");
+      SC4REQ(SetOptoEnd, "SetOptoEnd"); SC4REQ(SetOptoInvert, "SetOptoInvert");
+      SC4REQ(SetDIP, "SetDIP"); SC4REQ(SetStake, "SetStake");
+      SC4REQ(SetPrize, "SetPrize"); SC4REQ(SetPercent, "SetPercent");
+      SC4REQ(SetEDCEnable, "SetEDCEnable"); SC4REQ(SetCoinValue, "SetCoinValue");
+      SC4REQ(SetCoinEnable, "SetCoinEnable"); SC4REQ(SetHopperType, "SetHopperType");
+#define H(name) SC4REQ(name, #name)
+      H(SetHopperEnable); H(SetHopperCoinsIn); H(SetHopperCoinsOut); H(SetHopperCoin);
+      H(SetHopperLevel); H(SetHopperFullLevel); H(SetHopperLoEnable); H(SetHopperLoLevel);
+      H(SetHopperHiEnable); H(SetHopperHiLevel); H(SetHopperCoinsRefilled);
+#undef H
+#undef SC4REQ
     } else if (mpu5 || epoch) {
       if (!required(*library, mpu5 ? a.ResetMpu5 : a.ResetEpoch, "Reset", request.backend_path, error) ||
           !required(*library, a.CoinInMpu5, "CoinIn", request.backend_path, error))
@@ -1172,6 +1274,8 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
         ? static_cast<const FabricAmberMpu3Config *>(request.machine_configuration) : nullptr;
     const auto *m1_config = m1 && request.machine_configuration_size
         ? static_cast<const FabricAmberM1Config *>(request.machine_configuration) : nullptr;
+    const auto *scorpion4_config = scorpion4
+        ? static_cast<const FabricAmberScorpion4Config *>(request.machine_configuration) : nullptr;
     amber_trace::Write("selected for DLL='" +
                        std::string(request.backend_path) + "'");
     if (request.diagnostic_callback) {
@@ -1187,7 +1291,7 @@ CreateProductionAmberInstance(const FabricLaunchRequest &request,
     out = std::make_unique<ProductionAmberInstance>(std::move(library), a,
                                            std::move(program), std::move(sound),
                                            system6_config, mpu5_config, epoch_config,
-                                           mpu3_config, m1_config,
+                                           mpu3_config, m1_config, scorpion4_config,
                                            request.backend_path,
                                            machine,
                                            request.diagnostic_callback,

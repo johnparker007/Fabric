@@ -6,6 +6,34 @@
 #define FABRIC_AMBER_MAX_REELS 8u
 #define FABRIC_AMBER_MAX_COIN_CHANNELS 6u
 #define FABRIC_AMBER_MAX_COIN_ROUTES 8u
+#define FABRIC_AMBER_SCORPION4_REEL_COUNT 6u
+#define FABRIC_AMBER_SCORPION4_DIP_COUNT 16u
+#define FABRIC_AMBER_SCORPION4_COIN_CHANNEL_COUNT 6u
+#define FABRIC_AMBER_SCORPION4_HOPPER_COUNT 2u
+#define FABRIC_AMBER_SCORPION4_CONFIGURATION_MAGIC UINT32_C(0x34534146)
+/* little-endian bytes: "FAS4" */
+#define FABRIC_AMBER_SCORPION4_CONFIGURATION_VERSION_1 1u
+
+typedef struct FabricAmberScorpion4ReelConfig {
+  uint8_t steps, opto_start, opto_end, opto_invert;
+} FabricAmberScorpion4ReelConfig;
+typedef struct FabricAmberScorpion4CoinConfig {
+  uint8_t enabled, value, reserved8[2];
+} FabricAmberScorpion4CoinConfig;
+typedef struct FabricAmberScorpion4HopperConfig {
+  uint8_t enabled, coin, lo_enable, hi_enable;
+  uint32_t coins_in, coins_out, level, full_level, lo_level, hi_level,
+      coins_refilled;
+} FabricAmberScorpion4HopperConfig;
+typedef struct FabricAmberScorpion4Config {
+  uint32_t magic, struct_size, version, reel_count;
+  FabricAmberScorpion4ReelConfig reels[FABRIC_AMBER_SCORPION4_REEL_COUNT];
+  uint8_t dips[FABRIC_AMBER_SCORPION4_DIP_COUNT];
+  uint8_t stake, prize, percentage, edc_enabled;
+  uint8_t hopper_type, hopper_count, coin_channel_count, reserved0;
+  FabricAmberScorpion4CoinConfig coins[FABRIC_AMBER_SCORPION4_COIN_CHANNEL_COUNT];
+  FabricAmberScorpion4HopperConfig hoppers[FABRIC_AMBER_SCORPION4_HOPPER_COUNT];
+} FabricAmberScorpion4Config;
 #define FABRIC_AMBER_MPU3_REEL_COUNT 4u
 #define FABRIC_AMBER_MPU3_DIP_COUNT 16u
 #define FABRIC_AMBER_MPU3_CONFIGURATION_MAGIC UINT32_C(0x334D4146)

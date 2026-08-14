@@ -90,6 +90,13 @@ FabricResult validate_roms(const FabricLaunchRequest &request,
     error = "MPU3 requires between one and four program ROM paths";
     return FABRIC_INVALID_ARGUMENT;
   }
+  if (std::string(request.machine_identifier) == "bellfruit-scorpion4") {
+    const size_t count = request.rom_path_count ? request.rom_path_count : program.size();
+    if (count < 1 || count > 4 || sound.size() > 4) {
+      error = "Scorpion 4 requires 1..4 program and accepts 0..4 sound ROM paths";
+      return FABRIC_INVALID_ARGUMENT;
+    }
+  }
   if (std::string(request.machine_identifier) == "maygay-m1") {
     const size_t count = request.rom_path_count ? request.rom_path_count : program.size();
     if (count < 1 || count > 4) {
@@ -119,7 +126,8 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
                                     std::string &error) {
   if (!request.machine_configuration_size &&
       (std::string(request.machine_identifier) == "barcrest-mpu3" ||
-       std::string(request.machine_identifier) == "maygay-m1")) {
+       std::string(request.machine_identifier) == "maygay-m1" ||
+       std::string(request.machine_identifier) == "bellfruit-scorpion4")) {
     error = "selected Amber machine requires its dedicated configuration";
     return FABRIC_INVALID_ARGUMENT;
   }
@@ -133,6 +141,27 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
   };
   if (!request.machine_configuration)
     return malformed("is null");
+  if (machine == "bellfruit-scorpion4") {
+    if (request.machine_configuration_size != sizeof(FabricAmberScorpion4Config))
+      return malformed("expected FabricAmberScorpion4Config (152 bytes)");
+    const auto &c = *static_cast<const FabricAmberScorpion4Config *>(request.machine_configuration);
+    if (c.magic != FABRIC_AMBER_SCORPION4_CONFIGURATION_MAGIC || c.struct_size != sizeof(c) ||
+        c.version != FABRIC_AMBER_SCORPION4_CONFIGURATION_VERSION_1 ||
+        c.reel_count != 6 || c.hopper_count != 2 || c.coin_channel_count != 6 ||
+        c.reserved0 || c.stake > 7 || c.prize > 15 || c.percentage > 31 ||
+        c.edc_enabled > 1 || c.hopper_type > 3)
+      return malformed("is not a valid FabricAmberScorpion4Config");
+    for (const auto &r : c.reels) if (!r.steps || r.opto_invert > 1)
+      return malformed("has an invalid Scorpion 4 reel entry");
+    for (uint8_t v : c.dips) if (v > 1) return malformed("has an invalid Scorpion 4 DIP value");
+    for (const auto &v : c.coins)
+      if (v.enabled > 1 || (v.value > 5 && v.value != 0xff) || v.reserved8[0] || v.reserved8[1])
+        return malformed("has an invalid Scorpion 4 coin entry");
+    for (const auto &h : c.hoppers)
+      if (h.enabled > 1 || h.lo_enable > 1 || h.hi_enable > 1 || h.coin > 5)
+        return malformed("has an invalid Scorpion 4 hopper entry");
+    return FABRIC_OK;
+  }
   if (machine == "maygay-m1") {
     if (request.machine_configuration_size != sizeof(FabricAmberM1Config))
       return malformed("expected FabricAmberM1Config (148 bytes)");
@@ -341,7 +370,7 @@ public:
       const std::string machine = request.machine_identifier;
       if (machine != "jpm-system6" && machine != "barcrest-mpu5" &&
           machine != "maygay-epoch" && machine != "barcrest-mpu3" &&
-          machine != "maygay-m1") {
+          machine != "maygay-m1" && machine != "bellfruit-scorpion4") {
         error = "Amber backend 'amber' does not support machine identifier '" +
                 machine + "'; provider DLL='" + request.backend_path + "'";
         return FABRIC_NOT_SUPPORTED;

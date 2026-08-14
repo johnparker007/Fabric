@@ -35,6 +35,17 @@ static_assert(offsetof(FabricAmberM1Config, dips) == 40);
 static_assert(offsetof(FabricAmberM1Config, percentage_key) == 56);
 static_assert(offsetof(FabricAmberM1Config, hoppers) == 60);
 static_assert(offsetof(FabricAmberM1HopperConfig, coins_refilled) == 40);
+static_assert(sizeof(FabricAmberScorpion4ReelConfig) == 4);
+static_assert(sizeof(FabricAmberScorpion4CoinConfig) == 4);
+static_assert(sizeof(FabricAmberScorpion4HopperConfig) == 32);
+static_assert(sizeof(FabricAmberScorpion4Config) == 152);
+static_assert(offsetof(FabricAmberScorpion4Config, reels) == 16);
+static_assert(offsetof(FabricAmberScorpion4Config, dips) == 40);
+static_assert(offsetof(FabricAmberScorpion4Config, stake) == 56);
+static_assert(offsetof(FabricAmberScorpion4Config, coins) == 64);
+static_assert(offsetof(FabricAmberScorpion4Config, hoppers) == 88);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, coins_in) == 4);
+static_assert(offsetof(FabricAmberScorpion4HopperConfig, coins_refilled) == 28);
 int main() {
   FabricRuntime *runtime = nullptr;
   if (FabricCreateRuntime(FABRIC_ABI_VERSION_CURRENT, &runtime) != FABRIC_OK)
