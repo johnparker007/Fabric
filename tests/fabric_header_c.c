@@ -10,7 +10,7 @@ _Static_assert(offsetof(FabricCharacterDisplay, brightness) == 160,
                "character display brightness offset");
 _Static_assert(sizeof(FabricCharacterDisplay) == 164,
                "character display ABI size");
-_Static_assert(FABRIC_ABI_VERSION_CURRENT == UINT32_C(0x00030000),
+_Static_assert(FABRIC_ABI_VERSION_CURRENT == UINT32_C(0x00040000),
                "current ABI version");
 _Static_assert(sizeof(((FabricSegmentDisplay *)0)->segment_masks) ==
                    FABRIC_SEGMENT_DIGIT_CAPACITY * sizeof(uint64_t),
@@ -25,6 +25,11 @@ _Static_assert(offsetof(FabricInput, coin_channel) == 81, "coin channel offset")
 _Static_assert(offsetof(FabricInput, coin_value) == 82, "coin value offset");
 _Static_assert(FABRIC_CAPABILITY_COIN_INPUT == (UINT64_C(1) << 6),
                "coin capability bit");
+_Static_assert(FABRIC_CAPABILITY_DOT_MATRIX_DISPLAYS == (UINT64_C(1) << 7),
+               "dot-matrix capability bit");
+_Static_assert(sizeof(((FabricDotMatrixDisplay *)0)->dots) ==
+                   FABRIC_DOT_MATRIX_MAX_DOTS,
+               "inline dot ownership");
 _Static_assert(sizeof(FabricAmberSystem6CoinConfigurationV2) == 408,
                "Amber coin v2 configuration layout");
 _Static_assert(offsetof(FabricAmberSystem6CoinConfigurationV2, coin_pulse_cycles) == 24,

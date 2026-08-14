@@ -14,9 +14,11 @@ configuration is applied after every successful reset. Audio is required 48
 kHz stereo signed PCM16.
 
 Snapshots publish 256 matrix lamps, six reels, two segmented alpha displays,
-and 32 single-digit LED displays. The native alpha-dot duplicate, meters, DIPs,
-and hopper/accounting records are validated but intentionally not published by
-Fabric v3. Generic hopper opto/motor/switch/indicator exports, communication and
+32 single-digit LED displays, and the native PA2 alpha-dot slot 0 as an independent
+96-by-8 dot-matrix display. Each native five-column character occupies a six-column
+cell whose last column is blank; native column bits map directly to rows. Dot/comma
+metadata is not synthesized into pixels. Meters, DIPs, and hopper/accounting records
+are validated but not published. Generic hopper opto/motor/switch/indicator exports, communication and
 lockout settings, `SetCycles`, compatibility coin aliases, and external
 security/PIC configuration are intentionally unsupported for this machine.
 
@@ -155,8 +157,8 @@ reels, one 16-character segmented alpha, one dot alpha, 40 LED displays, one
 electronic mechanism, six meters, 16 DIPs, and two hoppers. Normalized output exposes
 512 lamps, eight reels, one character display, and the 40 native `LedDisplays` as
 segment displays; it never applies System 6's raw-LED conversion. Epoch's native
-16-character, five-column dot-alpha display is validated but is not yet representable
-by Fabric's public v3 snapshot and is therefore not published. The common audio path
+16-character, five-column dot-alpha display is validated but remains deliberately
+unpublished; the v4 normalization added here is focused only on Scorpion 4. The common audio path
 supports Epoch's reported 48 kHz stereo interleaved signed PCM16 format.
 
 Real-DLL validation is still required on Windows for export decoration/calling

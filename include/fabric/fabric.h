@@ -24,7 +24,8 @@ extern "C" {
 #define FABRIC_ABI_VERSION_1 UINT32_C(0x00010000)
 #define FABRIC_ABI_VERSION_2 UINT32_C(0x00020000)
 #define FABRIC_ABI_VERSION_3 UINT32_C(0x00030000)
-#define FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_3
+#define FABRIC_ABI_VERSION_4 UINT32_C(0x00040000)
+#define FABRIC_ABI_VERSION_CURRENT FABRIC_ABI_VERSION_4
 #define FABRIC_IDENTIFIER_CAPACITY 64u
 #define FABRIC_PATH_CAPACITY 1024u
 #define FABRIC_ERROR_CAPACITY 512u
@@ -33,6 +34,10 @@ extern "C" {
   ((uint32_t)offsetof(FabricLaunchRequest, rom_resources))
 #define FABRIC_CHARACTER_CAPACITY 16u
 #define FABRIC_SEGMENT_DIGIT_CAPACITY 16u
+#define FABRIC_DOT_MATRIX_MAX_WIDTH 128u
+#define FABRIC_DOT_MATRIX_MAX_HEIGHT 16u
+#define FABRIC_DOT_MATRIX_MAX_DOTS                                           \
+  (FABRIC_DOT_MATRIX_MAX_WIDTH * FABRIC_DOT_MATRIX_MAX_HEIGHT)
 
 typedef struct FabricRuntime FabricRuntime;
 typedef struct FabricMachineSession FabricMachineSession;
@@ -60,7 +65,8 @@ typedef enum FabricCapability {
   FABRIC_CAPABILITY_CHARACTER_DISPLAYS = UINT64_C(1) << 3,
   FABRIC_CAPABILITY_SEGMENT_DISPLAYS = UINT64_C(1) << 4,
   FABRIC_CAPABILITY_AUDIO = UINT64_C(1) << 5,
-  FABRIC_CAPABILITY_COIN_INPUT = UINT64_C(1) << 6
+  FABRIC_CAPABILITY_COIN_INPUT = UINT64_C(1) << 6,
+  FABRIC_CAPABILITY_DOT_MATRIX_DISPLAYS = UINT64_C(1) << 7
 } FabricCapability;
 
 typedef enum FabricInputKind {
@@ -160,6 +166,19 @@ typedef struct FabricSegmentDisplay {
   uint64_t segment_masks[FABRIC_SEGMENT_DIGIT_CAPACITY];
 } FabricSegmentDisplay;
 
+typedef struct FabricDotMatrixDisplay {
+  uint32_t struct_size;
+  uint32_t struct_version;
+  char identifier[FABRIC_IDENTIFIER_CAPACITY];
+  uint32_t width;
+  uint32_t height;
+  uint32_t dot_count;
+  uint32_t dot_capacity;
+  uint8_t dots[FABRIC_DOT_MATRIX_MAX_DOTS];
+  /* Display-wide normalized intensity: 0.0f is off and 1.0f is full. */
+  float brightness;
+} FabricDotMatrixDisplay;
+
 /* The caller owns all arrays and sets their capacities before each call. */
 typedef struct FabricMachineSnapshot {
   uint32_t struct_size;
@@ -177,6 +196,9 @@ typedef struct FabricMachineSnapshot {
   FabricSegmentDisplay *segment_displays;
   uint32_t segment_display_capacity;
   uint32_t segment_display_count;
+  FabricDotMatrixDisplay *dot_matrix_displays;
+  uint32_t dot_matrix_display_capacity;
+  uint32_t dot_matrix_display_count;
 } FabricMachineSnapshot;
 
 typedef struct FabricAudioFormat {

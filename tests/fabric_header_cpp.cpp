@@ -7,6 +7,9 @@ static_assert(offsetof(FabricAmberMpu3Config, reels) == 16);
 static_assert(offsetof(FabricAmberMpu3Config, dips) == 32);
 #include <type_traits>
 static_assert(std::is_standard_layout<FabricMachineSnapshot>::value, "C ABI snapshot");
+static_assert(std::is_standard_layout<FabricDotMatrixDisplay>::value,
+              "C ABI dot-matrix display");
+static_assert(std::is_same<decltype(FabricDotMatrixDisplay::brightness), float>::value);
 static_assert(std::is_standard_layout<FabricRomResource>::value, "C ABI resource");
 static_assert(std::is_same<decltype(FabricCharacterDisplay::brightness), float>::value,
               "character brightness is a float");
