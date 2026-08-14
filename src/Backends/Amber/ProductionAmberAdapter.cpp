@@ -24,6 +24,9 @@
 
 namespace fabric {
 namespace {
+static_assert(96u <= FABRIC_DOT_MATRIX_MAX_WIDTH);
+static_assert(8u <= FABRIC_DOT_MATRIX_MAX_HEIGHT);
+static_assert(96u * 8u <= FABRIC_DOT_MATRIX_MAX_DOTS);
 static_assert(alignof(PA2_OutputSnapshot) == 4,
               "production Amber snapshot must retain pack(4)");
 static_assert(sizeof(PA2_OutputSnapshot) == 24812,
@@ -315,6 +318,8 @@ public:
                 FABRIC_CAPABILITY_REELS | FABRIC_CAPABILITY_CHARACTER_DISPLAYS |
                 FABRIC_CAPABILITY_SEGMENT_DISPLAYS;
     out.flags |= FABRIC_CAPABILITY_COIN_INPUT;
+    if (machine_ == AmberMachine::Scorpion4)
+      out.flags |= FABRIC_CAPABILITY_DOT_MATRIX_DISPLAYS;
     if (api_.GetAudioFormat && api_.FillAudioFrames)
       out.flags |= FABRIC_CAPABILITY_AUDIO;
     return ok();
@@ -351,8 +356,7 @@ public:
           source.AlphaDotDisplayCount != 1 || source.LedDisplayCount != 40 ||
           source.ElectronicMechCount != 1 || source.MeterCount != 6 ||
           source.DipCount != 16 || source.HopperCount != 2;
-      /* TODO: Epoch's native dot-alpha display is not representable by the
-       * Fabric v3 snapshot API, so it is validated above but not normalized. */
+      /* Epoch dot-alpha normalization remains outside the current contract. */
       break;
     case AmberMachine::M1:
       invalid_counts = source.MatrixLampCount != 256 || source.TriacLampCount != 8 ||
@@ -395,14 +399,17 @@ public:
     out.reel_count = source.ReelCount;
     out.character_display_count = (machine_ == AmberMachine::Mpu5 || machine_ == AmberMachine::Mpu3 || machine_ == AmberMachine::Scorpion4) ? source.AlphaSegmentedDisplayCount : 1;
     out.segment_display_count = machine_ == AmberMachine::System6 ? 16 : source.LedDisplayCount;
+    out.dot_matrix_display_count = machine_ == AmberMachine::Scorpion4 ? 1 : 0;
     if (out.lamp_capacity < out.lamp_count ||
         out.reel_capacity < out.reel_count ||
         out.character_display_capacity < out.character_display_count ||
-        out.segment_display_capacity < out.segment_display_count)
+        out.segment_display_capacity < out.segment_display_count ||
+        out.dot_matrix_display_capacity < out.dot_matrix_display_count)
       return buffer_too_small("GetOutputSnapshot", out);
     if ((out.lamp_count && !out.lamps) || (out.reel_count && !out.reels) ||
         (out.character_display_count && !out.character_displays) ||
-        (out.segment_display_count && !out.segment_displays))
+        (out.segment_display_count && !out.segment_displays) ||
+        (out.dot_matrix_display_count && !out.dot_matrix_displays))
       return invalid("snapshot output buffer is null");
     for (uint32_t i = 0; i < out.character_display_count; ++i) {
       const float brightness = source.AlphaSegmented[i].Brightness;
@@ -415,6 +422,12 @@ public:
                     "alpha-display brightness is outside 0.0..1.0; index=" +
                         std::to_string(i) + "; value=" +
                         std::to_string(brightness));
+    }
+    if (out.dot_matrix_display_count) {
+      const float brightness = source.AlphaDot[0].Brightness;
+      if (!std::isfinite(brightness) || brightness < 0.0f || brightness > 1.0f)
+        return fail("GetOutputSnapshot",
+                    "dot-matrix brightness is outside finite 0.0..1.0 range");
     }
     for (uint32_t i = 0; i < (machine_ == AmberMachine::System6 ? 256u : source.LedDisplayCount); ++i)
       if (!std::isfinite(machine_ == AmberMachine::System6 ? source.Leds[i].Brightness : source.LedDisplays[i].Brightness))
@@ -478,6 +491,23 @@ public:
                  (source.Leds[i * 16 + segment].OnOff ? UINT64_C(1) : 0);
         d.segment_masks[0] = mask;
       }
+    }
+    if (out.dot_matrix_display_count) {
+      auto &d = out.dot_matrix_displays[0];
+      d = {};
+      d.struct_size = sizeof(d);
+      d.struct_version = FABRIC_ABI_VERSION_CURRENT;
+      std::snprintf(d.identifier, sizeof(d.identifier), "amber.dot-matrix.0");
+      d.width = 96;
+      d.height = 8;
+      d.dot_count = d.width * d.height;
+      d.dot_capacity = FABRIC_DOT_MATRIX_MAX_DOTS;
+      for (uint32_t cell = 0; cell < PA2_NUM_ALPHA_CHARS; ++cell)
+        for (uint32_t column = 0; column < 5; ++column)
+          for (uint32_t y = 0; y < 8; ++y)
+            d.dots[y * d.width + cell * 6 + column] =
+                (source.AlphaDot[0].Columns[cell][column] >> y) & 1u;
+      d.brightness = source.AlphaDot[0].Brightness;
     }
     if (snapshot_trace_count_ < 8) {
       uint32_t active = 0, changed_lamps = 0, changed_reels = 0,
@@ -1055,7 +1085,8 @@ private:
              "/512; reels=" + std::to_string(out.reel_capacity) +
              "/8; alpha=" + std::to_string(out.character_display_capacity) +
              "/1; segment=" + std::to_string(out.segment_display_capacity) +
-             "/16";
+             "/16; dot-matrix=" +
+             std::to_string(out.dot_matrix_display_capacity) + "/1";
     return FABRIC_BUFFER_TOO_SMALL;
   }
   std::unique_ptr<AmberDynamicLibrary> library_;

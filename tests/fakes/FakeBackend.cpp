@@ -25,6 +25,7 @@ public:
         value.sequence = 42;
         value.lamp_count = 1;
         value.reel_count = value.character_display_count = value.segment_display_count = 0;
+        value.dot_matrix_display_count = 0;
         if (value.lamp_capacity < 1 || !value.lamps) return FABRIC_BUFFER_TOO_SMALL;
         FabricLamp lamp{};
         lamp.struct_size = sizeof(lamp);
