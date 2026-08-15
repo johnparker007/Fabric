@@ -13,6 +13,11 @@ byte-valued native reset result is checked, and the complete 152-byte
 configuration is applied after every successful reset. Audio is required 48
 kHz stereo signed PCM16.
 
+The percentage byte is a Project Amber selector index in the range 0..15, not
+a literal percentage or an arbitrary five-bit value. Selector 0 means None;
+selectors 1..15 represent 70%..98% in 2% increments. Stake remains a selector
+from 0..7 and prize remains a selector from 0..15.
+
 Snapshots publish 256 matrix lamps, six reels, two segmented alpha displays,
 32 single-digit LED displays, and the native PA2 alpha-dot slot 0 as an independent
 96-by-8 dot-matrix display. Each native five-column character occupies a six-column
