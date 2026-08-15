@@ -17,6 +17,23 @@ int main(){
   config.reel_count=6; config.hopper_count=2; config.coin_channel_count=6;
   for(auto &reel:config.reels) reel.steps=96;
   r.machine_configuration=&config; r.machine_configuration_size=sizeof(config);
+  auto configuration_result = [&](uint8_t stake, uint8_t prize, uint8_t percentage) {
+    config.stake=stake; config.prize=prize; config.percentage=percentage;
+    FabricMachineSession *candidate=nullptr;
+    const FabricResult result=FabricCreateSession(runtime,&r,&candidate);
+    if(candidate) FabricDestroySession(candidate);
+    return result;
+  };
+  CHECK(configuration_result(0,0,0)==FABRIC_OK);
+  CHECK(configuration_result(7,0,0)==FABRIC_OK);
+  CHECK(configuration_result(8,0,0)==FABRIC_INVALID_ARGUMENT);
+  CHECK(configuration_result(0,15,0)==FABRIC_OK);
+  CHECK(configuration_result(0,16,0)==FABRIC_INVALID_ARGUMENT);
+  // Percentage is Project Amber's selector index, not a literal percentage or arbitrary five-bit value.
+  CHECK(configuration_result(0,0,15)==FABRIC_OK);
+  CHECK(configuration_result(0,0,16)==FABRIC_INVALID_ARGUMENT);
+  CHECK(configuration_result(0,0,31)==FABRIC_INVALID_ARGUMENT);
+  config.stake=0; config.prize=0; config.percentage=0;
   FabricResult created=FabricCreateSession(runtime,&r,&session); if(created!=FABRIC_OK){char e[512]{};uint32_t n=0;FabricRuntimeGetLastError(runtime,e,sizeof(e),&n);std::cerr<<e<<"\n";} CHECK(created==FABRIC_OK); CHECK(FabricSessionInitialise(session)==FABRIC_OK);
   FabricCapabilities cap{sizeof(cap),FABRIC_ABI_VERSION_CURRENT}; CHECK(FabricSessionGetCapabilities(session,&cap)==FABRIC_OK);
   CHECK((cap.flags&FABRIC_CAPABILITY_DOT_MATRIX_DISPLAYS)!=0);

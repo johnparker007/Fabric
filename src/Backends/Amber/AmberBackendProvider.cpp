@@ -148,7 +148,7 @@ FabricResult validate_configuration(const FabricLaunchRequest &request,
     if (c.magic != FABRIC_AMBER_SCORPION4_CONFIGURATION_MAGIC || c.struct_size != sizeof(c) ||
         c.version != FABRIC_AMBER_SCORPION4_CONFIGURATION_VERSION_1 ||
         c.reel_count != 6 || c.hopper_count != 2 || c.coin_channel_count != 6 ||
-        c.reserved0 || c.stake > 7 || c.prize > 15 || c.percentage > 31 ||
+        c.reserved0 || c.stake > 7 || c.prize > 15 || c.percentage > 15 ||
         c.edc_enabled > 1 || c.hopper_type > 3)
       return malformed("is not a valid FabricAmberScorpion4Config");
     for (const auto &r : c.reels) if (!r.steps || r.opto_invert > 1)
